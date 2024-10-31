@@ -543,8 +543,9 @@ bool PikaClientConn::IsAuthed() const { return authenticated_; }
 void PikaClientConn::InitUser() {
   if (g_pika_conf->requirepass().empty()) {
     user_ = g_pika_server->Acl()->GetUserLock(Acl::DefaultUser);
+  } else {
+    user_ = g_pika_server->Acl()->GetUserLock(Acl::DefaultLimitUser);
   }
-  user_ = g_pika_server->Acl()->GetUserLock(Acl::DefaultLimitUser);
   authenticated_ = user_->HasFlags(static_cast<uint32_t>(AclUserFlag::NO_PASS)) &&
                    !user_->HasFlags(static_cast<uint32_t>(AclUserFlag::DISABLED));
 }
