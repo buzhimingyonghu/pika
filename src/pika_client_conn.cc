@@ -541,10 +541,10 @@ void PikaClientConn::UnAuth(const std::shared_ptr<User>& user) {
 
 bool PikaClientConn::IsAuthed() const { return authenticated_; }
 void PikaClientConn::InitUser() {
-  if (g_pika_conf->requirepass().empty()) {
-    user_ = g_pika_server->Acl()->GetUserLock(Acl::DefaultUser);
-  } else {
+  if (!g_pika_conf->GetUserBlackList().empty()) {
     user_ = g_pika_server->Acl()->GetUserLock(Acl::DefaultLimitUser);
+  } else {
+    user_ = g_pika_server->Acl()->GetUserLock(Acl::DefaultUser);
   }
   authenticated_ = user_->HasFlags(static_cast<uint32_t>(AclUserFlag::NO_PASS)) &&
                    !user_->HasFlags(static_cast<uint32_t>(AclUserFlag::DISABLED));
@@ -552,13 +552,16 @@ void PikaClientConn::InitUser() {
 bool PikaClientConn::AuthRequired() const {
   // If the user does not have a password, and the user is valid, then the user does not need authentication
   // Otherwise, you need to determine whether go has been authenticated
+  if (IsAuthed()) {
+    return false;
+  }
   if (user_->HasFlags(static_cast<uint32_t>(AclUserFlag::DISABLED))) {
     return true;
   }
   if (user_->HasFlags(static_cast<uint32_t>(AclUserFlag::NO_PASS))) {
     return false;
   }
-  return !IsAuthed();
+  return true;
 }
 std::string PikaClientConn::UserName() const { return user_->Name(); }
 

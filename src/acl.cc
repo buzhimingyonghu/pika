@@ -495,7 +495,15 @@ void Acl::InitLimitUser(const std::string& bl, bool limit_exist) {
       }
       u->SetUser("on");
     }
+    if (!pass.empty()) {
+      u->SetUser(">" + pass);
+    }
   } else {
+    if (pass.empty()) {
+      u->SetUser("nopass");
+    } else {
+      u->SetUser(">" + pass);
+    }
     u->SetUser("on");
     u->SetUser("+@all");
     u->SetUser("~*");
@@ -505,11 +513,6 @@ void Acl::InitLimitUser(const std::string& bl, bool limit_exist) {
       cmd = pstd::StringTrim(cmd, " ");
       u->SetUser("-" + cmd);
     }
-  }
-  if (pass.empty()) {
-    u->SetUser("nopass");
-  } else {
-    u->SetUser(">" + pass);
   }
 }
 // bool Acl::CheckUserCanExec(const std::shared_ptr<Cmd>& cmd, const PikaCmdArgsType& argv) { cmd->name(); }
