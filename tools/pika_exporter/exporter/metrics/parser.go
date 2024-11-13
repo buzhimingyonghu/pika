@@ -24,13 +24,15 @@ type ParseOption struct {
 	CurrentVersion VersionChecker
 }
 type VersionChecker interface {
-	CheckContainsEmptyValue(key string) bool
+	CheckContainsEmptyValueName(key string) bool
+	CheckContainsEmptyRegexName(key string) bool
 }
 type VersionChecker336 struct {
 	EmptyValueName []string
+	EmptyRegexName []string
 }
 
-func (v *VersionChecker336) CheckContainsEmptyValue(key string) bool {
+func (v *VersionChecker336) CheckContainsEmptyValueName(key string) bool {
 	if v.EmptyValueName == nil {
 		v.EmptyValueName = []string{
 			"instantaneous_output_repl_kbps",
@@ -55,12 +57,62 @@ func (v *VersionChecker336) CheckContainsEmptyValue(key string) bool {
 	}
 	return false
 }
+func (v *VersionChecker336) CheckContainsEmptyRegexName(key string) bool {
+	if v.EmptyRegexName == nil {
+		v.EmptyRegexName = []string{
+			"hitratio_per_sec",
+		}
+	}
+	for _, str := range v.EmptyRegexName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+
+type VersionChecker350 struct {
+	EmptyValueName []string
+	EmptyRegexName []string
+}
+
+func (v *VersionChecker350) CheckContainsEmptyValueName(key string) bool {
+	if v.EmptyValueName == nil {
+		v.EmptyValueName = []string{
+			"cache_db_num",
+			"cache_status",
+			"cache_memory",
+			"hits_per_sec",
+			"slow_logs_count",
+		}
+	}
+	for _, str := range v.EmptyValueName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+func (v *VersionChecker350) CheckContainsEmptyRegexName(key string) bool {
+	if v.EmptyRegexName == nil {
+		v.EmptyRegexName = []string{
+			"hitratio_per_sec",
+		}
+	}
+	for _, str := range v.EmptyRegexName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
 
 type VersionChecker355 struct {
 	EmptyValueName []string
+	EmptyRegexName []string
 }
 
-func (v *VersionChecker355) CheckContainsEmptyValue(key string) bool {
+func (v *VersionChecker355) CheckContainsEmptyValueName(key string) bool {
 	if v.EmptyValueName == nil {
 		v.EmptyValueName = []string{
 			"cache_db_num",
@@ -76,22 +128,18 @@ func (v *VersionChecker355) CheckContainsEmptyValue(key string) bool {
 	}
 	return false
 }
-
-type VersionChecker350 struct {
-	EmptyValueName []string
-}
-
-func (v *VersionChecker350) CheckContainsEmptyValue(key string) bool {
-	if v.EmptyValueName == nil {
-		v.EmptyValueName = []string{
-			"cache_db_num",
-			"cache_status",
-			"cache_memory",
-			"hits_per_sec",
-			"slow_logs_count",
+func (v *VersionChecker355) CheckContainsEmptyRegexName(key string) bool {
+	if v.EmptyRegexName == nil {
+		v.EmptyRegexName = []string{
+			"hitratio_per_sec",
+			"keyspace_info_>=3.1.0",
+			"keyspace_info_all_>=3.3.3",
+			"binlog_>=3.2.0",
+			"keyspace_last_start_time",
+			"is_scaning_keyspace",
 		}
 	}
-	for _, str := range v.EmptyValueName {
+	for _, str := range v.EmptyRegexName {
 		if str == key {
 			return true
 		}
@@ -188,7 +236,7 @@ func (p *regexParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 	matchMaps := p.regMatchesToMap(s)
 	if len(matchMaps) == 0 {
-		if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyValue(p.name) {
+		if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyRegexName(p.name) {
 			log.Warnf("regexParser::Parse reg find sub match nil. name:%s", p.name)
 		}
 	}
@@ -213,7 +261,6 @@ func (p *regexParser) regMatchesToMap(s string) []map[string]string {
 
 	multiMatches := p.reg.FindAllStringSubmatch(s, -1)
 	if len(multiMatches) == 0 {
-		log.Errorf("regexParser::regMatchesToMap reg find sub match nil. name:%s", p.name)
 		return nil
 	}
 
@@ -249,7 +296,7 @@ func (p *normalParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 		if m.ValueName != "" {
 			if v, ok := findInMap(m.ValueName, opt.Extracts); !ok {
-				if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyValue(m.ValueName) {
+				if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyValueName(m.ValueName) {
 					log.Warnf("normalParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
 				}
 				return
