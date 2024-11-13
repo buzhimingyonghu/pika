@@ -252,15 +252,32 @@ func (e *exporter) collectInfo(c *client, ch chan<- prometheus.Metric) error {
 		return nil
 	})
 	parseOpt := metrics.ParseOption{
-		Version:  version,
-		Extracts: extracts,
-		Info:     info,
+		Version:        version,
+		Extracts:       extracts,
+		Info:           info,
+		CurrentVersion: selectversion(version.Original()),
 	}
 	for _, m := range metrics.MetricConfigs {
 		m.Parse(m, collector, parseOpt)
 	}
 
 	return nil
+}
+
+func selectversion(version string) metrics.VersionChecker {
+	var v metrics.VersionChecker
+
+	switch version {
+	case "3.3.6":
+		v = &metrics.VersionChecker336{}
+	case "3.5.5":
+		v = &metrics.VersionChecker355{}
+	case "3.5.0":
+		v = &metrics.VersionChecker350{}
+	default:
+		return nil
+	}
+	return v
 }
 
 func (e *exporter) collectKeys(c *client) error {

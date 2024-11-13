@@ -17,10 +17,86 @@ const (
 )
 
 type ParseOption struct {
-	Version       *semver.Version
-	Extracts      map[string]string
-	ExtractsProxy map[string][]int64
-	Info          string
+	Version        *semver.Version
+	Extracts       map[string]string
+	ExtractsProxy  map[string][]int64
+	Info           string
+	CurrentVersion VersionChecker
+}
+type VersionChecker interface {
+	CheckContainsEmptyValue(key string) bool
+}
+type VersionChecker336 struct {
+	EmptyValueName []string
+}
+
+func (v *VersionChecker336) CheckContainsEmptyValue(key string) bool {
+	if v.EmptyValueName == nil {
+		v.EmptyValueName = []string{
+			"instantaneous_output_repl_kbps",
+			"total_net_output_bytes",
+			"cache_db_num",
+			"hits_per_sec",
+			"cache_status",
+			"total_net_input_bytes",
+			"instantaneous_output_kbps",
+			"instantaneous_input_kbps",
+			"total_net_repl_input_bytes",
+			"instantaneous_input_repl_kbps",
+			"slow_logs_count",
+			"total_net_repl_output_bytes",
+			"cache_memory",
+		}
+	}
+	for _, str := range v.EmptyValueName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+
+type VersionChecker355 struct {
+	EmptyValueName []string
+}
+
+func (v *VersionChecker355) CheckContainsEmptyValue(key string) bool {
+	if v.EmptyValueName == nil {
+		v.EmptyValueName = []string{
+			"cache_db_num",
+			"cache_status",
+			"cache_memory",
+			"hits_per_sec",
+		}
+	}
+	for _, str := range v.EmptyValueName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+
+type VersionChecker350 struct {
+	EmptyValueName []string
+}
+
+func (v *VersionChecker350) CheckContainsEmptyValue(key string) bool {
+	if v.EmptyValueName == nil {
+		v.EmptyValueName = []string{
+			"cache_db_num",
+			"cache_status",
+			"cache_memory",
+			"hits_per_sec",
+			"slow_logs_count",
+		}
+	}
+	for _, str := range v.EmptyValueName {
+		if str == key {
+			return true
+		}
+	}
+	return false
 }
 
 type Parser interface {
@@ -112,9 +188,10 @@ func (p *regexParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 	matchMaps := p.regMatchesToMap(s)
 	if len(matchMaps) == 0 {
-		log.Warnf("regexParser::Parse reg find sub match nil. name:%s", p.name)
+		if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyValue(p.name) {
+			log.Warnf("regexParser::Parse reg find sub match nil. name:%s", p.name)
+		}
 	}
-
 	extracts := make(map[string]string)
 	for k, v := range opt.Extracts {
 		extracts[k] = v
@@ -172,8 +249,11 @@ func (p *normalParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 		if m.ValueName != "" {
 			if v, ok := findInMap(m.ValueName, opt.Extracts); !ok {
-				log.Warnf("normalParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
+				if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyValue(m.ValueName) {
+					log.Warnf("normalParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
+				}
 				return
+
 			} else {
 				metric.Value = convertToFloat64(v)
 			}
@@ -208,7 +288,6 @@ func (p *timeParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 		if m.ValueName != "" {
 			if v, ok := findInMap(m.ValueName, opt.Extracts); !ok {
-				log.Warnf("timeParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
 				return
 			} else {
 				t, err := convertTimeToUnix(v)
@@ -227,6 +306,7 @@ func (p *timeParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 }
 
 func findInMap(key string, ms ...map[string]string) (string, bool) {
+
 	for _, m := range ms {
 		if v, ok := m[key]; ok {
 			return v, true
@@ -234,7 +314,6 @@ func findInMap(key string, ms ...map[string]string) (string, bool) {
 	}
 	return "", false
 }
-
 func trimSpace(s string) string {
 	return strings.TrimRight(strings.TrimLeft(s, " "), " ")
 }
