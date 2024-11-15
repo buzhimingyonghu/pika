@@ -264,22 +264,37 @@ func (e *exporter) collectInfo(c *client, ch chan<- prometheus.Metric) error {
 	return nil
 }
 
-func selectversion(version string) metrics.VersionChecker {
-	var v metrics.VersionChecker
+const (
+	VERSION_336 = "3.3.6"
+	VERSION_350 = "3.5.0"
+	VERSION_355 = "3.5.5"
+)
 
+func selectversion(version string) metrics.VersionChecker {
+	if !isValidVersion(version) {
+		log.Warnf("Invalid version format: %s", version)
+		return nil
+	}
+	var v metrics.VersionChecker
 	switch version {
-	case "3.3.6":
+	case VERSION_336:
 		v = &metrics.VersionChecker336{}
-	case "3.5.5":
+	case VERSION_355:
 		v = &metrics.VersionChecker355{}
-	case "3.5.0":
+	case VERSION_350:
 		v = &metrics.VersionChecker350{}
 	default:
 		return nil
 	}
+	v.InitVersionChecker()
 	return v
 }
 
+// isValidVersion validates the version string format (e.g., x.y.z)
+func isValidVersion(version string) bool {
+	matched, _ := regexp.MatchString(`^\d+\.\d+\.\d+$`, version)
+	return matched
+}
 func (e *exporter) collectKeys(c *client) error {
 	allKeys := append([]dbKeyPair{}, e.keys...)
 	keys, err := getKeysFromPatterns(c, e.keyPatterns, e.scanCount)
