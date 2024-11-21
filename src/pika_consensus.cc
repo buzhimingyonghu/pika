@@ -116,6 +116,7 @@ Status SyncProgress::AddSlaveNode(const std::string& ip, int port, const std::st
     slaves_[slave_key] = slave_ptr;
     // add slave to match_index
     match_index_[slave_key] = LogOffset();
+    db_write_match_index_[slave_key] = LogOffset();
   }
   return Status::OK();
 }
@@ -127,12 +128,13 @@ Status SyncProgress::RemoveSlaveNode(const std::string& ip, int port) {
     slaves_.erase(slave_key);
     // remove slave to match_index
     match_index_.erase(slave_key);
+    db_write_match_index_.erase(slave_key);
   }
   return Status::OK();
 }
 
 Status SyncProgress::Update(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
-                            LogOffset* committed_index) {
+                            LogOffset* committed_index, const bool is_db_write) {
   std::shared_ptr<SlaveNode> slave_ptr = GetSlaveNode(ip, port);
   if (!slave_ptr) {
     return Status::NotFound("ip " + ip + " port " + std::to_string(port));
@@ -142,13 +144,17 @@ Status SyncProgress::Update(const std::string& ip, int port, const LogOffset& st
   {
     // update slave_ptr
     std::lock_guard l(slave_ptr->slave_mu);
-    Status s = slave_ptr->Update(start, end, &acked_offset);
+    Status s = slave_ptr->Update(start, end, &acked_offset, is_db_write);
     if (!s.ok()) {
       return s;
     }
     // update match_index_
     // shared slave_ptr->slave_mu
-    match_index_[ip + std::to_string(port)] = acked_offset;
+    if (is_db_write) {
+      db_write_match_index_[ip + std::to_string(port)] = acked_offset;
+    } else {
+      match_index_[ip + std::to_string(port)] = acked_offset;
+    }
   }
 
   return Status::OK();
@@ -370,9 +376,9 @@ Status ConsensusCoordinator::ProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_pt
 }
 
 Status ConsensusCoordinator::UpdateSlave(const std::string& ip, int port, const LogOffset& start,
-                                         const LogOffset& end) {
+                                         const LogOffset& end, const bool is_db_write) {
   LogOffset committed_index;
-  Status s = sync_pros_.Update(ip, port, start, end, &committed_index);
+  Status s = sync_pros_.Update(ip, port, start, end, &committed_index, is_db_write);
   if (!s.ok()) {
     return s;
   }

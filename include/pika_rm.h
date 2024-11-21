@@ -67,7 +67,8 @@ class SyncMasterDB : public SyncDB {
   bool CheckSessionId(const std::string& ip, int port, const std::string& db_name, int session_id);
 
   // consensus use
-  pstd::Status ConsensusUpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end);
+  pstd::Status ConsensusUpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
+                                    const bool is_db_write = false);
   pstd::Status ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr);
   pstd::Status ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
   LogOffset ConsensusCommittedIndex();
@@ -81,6 +82,10 @@ class SyncMasterDB : public SyncDB {
     }
     return coordinator_.StableLogger()->Logger();
   }
+
+  // get offset location where all slaves will write db and if some slaves send
+  // write db cmd, this location will be put into WQ
+  Status TrySendWriteDb();
 
  private:
   // invoker need to hold slave_mu_
@@ -169,7 +174,8 @@ class PikaReplicaManager {
   pstd::Status DeactivateSyncSlaveDB(const std::string& ip, int port);
 
   // Update binlog win and try to send next binlog
-  pstd::Status UpdateSyncBinlogStatus(const RmNode& slave, const LogOffset& offset_start, const LogOffset& offset_end);
+  pstd::Status UpdateSyncBinlogStatus(const RmNode& slave, const LogOffset& offset_start, const LogOffset& offset_end,
+                                      const bool is_db_write = true);
   pstd::Status WakeUpBinlogSync();
 
   // write_queue related
@@ -209,6 +215,9 @@ class PikaReplicaManager {
     return pika_repl_client_->GetUnfinishedAsyncWriteDBTaskCount(db_name);
   }
 
+  // try to send db write cmd to all slaves
+  Status TrySendWriteDb();
+
  private:
   void InitDB();
   pstd::Status SelectLocalIp(const std::string& remote_ip, int remote_port, std::string* local_ip);
@@ -223,6 +232,16 @@ class PikaReplicaManager {
   std::unordered_map<std::string, std::unordered_map<std::string, std::queue<WriteTask>>> write_queues_;
   std::unique_ptr<PikaReplClient> pika_repl_client_;
   std::unique_ptr<PikaReplServer> pika_repl_server_;
+
+  // remember all binlog info which has been sent to slave and we have received
+  // corresponding ack.  If the slave reconnect this master, the binog session id
+  // will be changed. so in order to identify slave's binlog info, we choose
+  // session id rather than ip and port.
+  std::unordered_map<int32_t, BinlogOffset> binlog_off_;
+
+  // remenber locations where all slaves's db is written
+  std::unordered_map<int32_t, BinlogOffset> db_write_off_;
+  pstd::Mutex mu_;
 };
 
 #endif  //  PIKA_RM_H

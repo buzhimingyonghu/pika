@@ -34,6 +34,7 @@ class PikaReplServerConn : public net::PbConn {
                                      InnerMessage::InnerResponse::TrySync* try_sync_response);
   static void HandleDBSyncRequest(void* arg);
   static void HandleBinlogSyncRequest(void* arg);
+  static void HandleDBWriteSyncRequest(void* arg);
   static void HandleRemoveSlaveNodeRequest(void* arg);
 
   int DealMessage() override;

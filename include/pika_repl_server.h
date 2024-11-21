@@ -32,10 +32,12 @@ class PikaReplServer {
   int Stop();
 
   pstd::Status SendSlaveBinlogChips(const std::string& ip, int port, const std::vector<WriteTask>& tasks);
+  pstd::Status SendSlaveDbWriteChips(const std::string& ip, int port, const std::vector<WriteTask>& tasks);
   pstd::Status Write(const std::string& ip, int port, const std::string& msg);
 
   void BuildBinlogOffset(const LogOffset& offset, InnerMessage::BinlogOffset* boffset);
   void BuildBinlogSyncResp(const std::vector<WriteTask>& tasks, InnerMessage::InnerResponse* resp);
+  void BuildDbWriteSyncResp(const std::vector<WriteTask>& tasks, InnerMessage::InnerResponse* resp);
   void Schedule(net::TaskFunc func, void* arg);
   void UpdateClientConnMap(const std::string& ip_port, int fd);
   void RemoveClientConn(int fd);

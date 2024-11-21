@@ -80,6 +80,35 @@ pstd::Status PikaReplServer::SendSlaveBinlogChips(const std::string& ip, int por
   return Write(ip, port, binlog_chip_pb);
 }
 
+pstd::Status PikaReplServer::SendSlaveDbWriteChips(const std::string& ip, int port,
+                                                  const std::vector<WriteTask>& tasks) {
+  InnerMessage::InnerResponse response;
+  BuildDbWriteSyncResp(tasks, &response);
+
+  std::string binlog_chip_pb;
+  if (!response.SerializeToString(&binlog_chip_pb)) {
+    return Status::Corruption("Serialized Failed");
+  }
+
+  if (binlog_chip_pb.size() > static_cast<size_t>(g_pika_conf->max_conn_rbuf_size())) {
+    for (const auto& task : tasks) {
+      InnerMessage::InnerResponse response;
+      std::vector<WriteTask> tmp_tasks;
+      tmp_tasks.push_back(task);
+      BuildDbWriteSyncResp(tmp_tasks, &response);
+      if (!response.SerializeToString(&binlog_chip_pb)) {
+        return Status::Corruption("Serialized Failed");
+      }
+      pstd::Status s = Write(ip, port, binlog_chip_pb);
+      if (!s.ok()) {
+        return s;
+      }
+    }
+    return pstd::Status::OK();
+  }
+  return Write(ip, port, binlog_chip_pb);
+}
+
 void PikaReplServer::BuildBinlogOffset(const LogOffset& offset, InnerMessage::BinlogOffset* boffset) {
   boffset->set_filenum(offset.b_offset.filenum);
   boffset->set_offset(offset.b_offset.offset);
@@ -104,6 +133,25 @@ void PikaReplServer::BuildBinlogSyncResp(const std::vector<WriteTask>& tasks, In
     InnerMessage::BinlogOffset* boffset = binlog_sync->mutable_binlog_offset();
     BuildBinlogOffset(task.binlog_chip_.offset_, boffset);
     binlog_sync->set_binlog(task.binlog_chip_.binlog_);
+  }
+}
+
+void PikaReplServer::BuildDbWriteSyncResp(const std::vector<WriteTask>& tasks, InnerMessage::InnerResponse* response) {
+  response->set_code(InnerMessage::kOk);
+  response->set_type(InnerMessage::Type::kDbWrite);
+  for (const auto& task : tasks) {
+    InnerMessage::InnerResponse::DbWriteSync* db_write_sync = response->mutable_db_write_sync();
+    db_write_sync->set_session_id(task.rm_node_.SessionId());
+    InnerMessage::Slot* db = db_write_sync->mutable_slot();
+    db->set_db_name(task.rm_node_.DBName());
+    /*
+     * Since the slot field is written in protobuffer,
+     * slot_id is set to the default value 0 for compatibility
+     * with older versions, but slot_id is not used
+     */
+    db->set_slot_id(0);
+    InnerMessage::BinlogOffset* boffset = db_write_sync->mutable_db_write_offset();
+    BuildBinlogOffset(task.db_write_chip_.offset_, boffset);
   }
 }
 

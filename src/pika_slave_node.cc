@@ -87,12 +87,19 @@ std::string SlaveNode::ToStringStatus() {
   return tmp_stream.str();
 }
 
-Status SlaveNode::Update(const LogOffset& start, const LogOffset& end, LogOffset* updated_offset) {
+Status SlaveNode::Update(const LogOffset& start, const LogOffset& end, LogOffset* updated_offset,
+                         const bool is_db_write) {
   if (slave_state != kSlaveBinlogSync) {
     return Status::Corruption(ToString() + "state not BinlogSync");
   }
   *updated_offset = LogOffset();
-  bool res = sync_win.Update(SyncWinItem(start), SyncWinItem(end), updated_offset);
+  bool res = false;
+  if (is_db_write) {
+    res = db_write_sync_win.Update(SyncWinItem(start), SyncWinItem(end), updated_offset);
+  } else {
+    res = sync_win.Update(SyncWinItem(start), SyncWinItem(end), updated_offset);
+  }
+  // ignore error whiling syncing db write
   if (!res) {
     return Status::Corruption("UpdateAckedInfo failed");
   }

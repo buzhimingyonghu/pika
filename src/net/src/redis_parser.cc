@@ -326,7 +326,9 @@ RedisParserStatus RedisParser::ProcessInputBuffer(const char* input_buf, int len
       return status_code_;
     }
     // cur_pos_ starts from 0, val of cur_pos_ is the parsed_len
-    *parsed_len = cur_pos_;
+    if (parsed_len) {
+      *parsed_len = cur_pos_;
+    }
     ResetRedisParser();
     // PrintCurrentStatus();
     return status_code_;

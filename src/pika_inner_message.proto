@@ -8,6 +8,7 @@ enum Type {
   kBinlogSync      = 4;
   kHeatBeat        = 5;
   kRemoveSlaveNode = 6;
+  kDbWrite         = 7;
 }
 
 enum StatusCode {
@@ -86,6 +87,16 @@ message InnerRequest {
     required bool         first_send      = 7;
   }
 
+  message DbWriteSync {
+    required Node         node            = 1;
+    required string       db_name      = 2;
+    required uint32       slot_id    = 3;
+    required BinlogOffset ack_range_start = 4;
+    required BinlogOffset ack_range_end   = 5;
+    required int32        session_id      = 6;
+    required bool         succ            = 7;
+  }
+
   message RemoveSlaveNode {
     required Node         node            = 1;
     required Slot         slot            = 2;
@@ -98,6 +109,7 @@ message InnerRequest {
   optional BinlogSync      binlog_sync       = 5;
   repeated RemoveSlaveNode remove_slave_node = 6;
   optional ConsensusMeta   consensus_meta    = 7;
+  optional DbWriteSync     db_write_sync     = 8;
 }
 
 message SlotInfo {
@@ -148,6 +160,12 @@ message InnerResponse {
     required int32          session_id    = 4;
   }
 
+  message DbWriteSync {
+    required Slot           slot          = 1;
+    required BinlogOffset   db_write_offset = 2;
+    required int32          session_id    = 3;
+  }
+
   message RemoveSlaveNode {
     required Node            node            = 1;
     required Slot            slot       = 2;
@@ -163,4 +181,5 @@ message InnerResponse {
   repeated RemoveSlaveNode remove_slave_node = 8;
   // consensus use
   optional ConsensusMeta   consensus_meta    = 9;
+  optional DbWriteSync     db_write_sync     = 10;
 }

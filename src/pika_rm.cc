@@ -186,8 +186,9 @@ Status SyncMasterDB::ReadBinlogFileToWq(const std::shared_ptr<SlaveNode>& slave_
   return Status::OK();
 }
 
-Status SyncMasterDB::ConsensusUpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end) {
-  Status s = coordinator_.UpdateSlave(ip, port, start, end);
+Status SyncMasterDB::ConsensusUpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
+                                          const bool is_db_write) {
+  Status s = coordinator_.UpdateSlave(ip, port, start, end, is_db_write);
   if (!s.ok()) {
     LOG(WARNING) << SyncDBInfo().ToString() << s.ToString();
     return s;
@@ -220,6 +221,40 @@ Status SyncMasterDB::GetSlaveState(const std::string& ip, int port, SlaveState* 
   *slave_state = slave_ptr->slave_state;
   slave_ptr->Unlock();
 
+  return Status::OK();
+}
+
+Status SyncMasterDB::TrySendWriteDb() {
+  std::unordered_map<std::string, std::shared_ptr<SlaveNode>> slaves = GetAllSlaveNodes();
+  // 1. get minimun binlog offset in all slaves
+  auto min_binlog_ack_off = LogOffset();
+  for (auto& slave_iter : slaves) {
+    std::shared_ptr<SlaveNode> slave_ptr = slave_iter.second;
+    std::lock_guard l(slave_ptr->slave_mu);
+    // maybe some db write reqeust has been sent to slave but not received
+    // any ack, and we should send db write cmd to slave again.  Although
+    // there are more than one db write cmd request in network, but we it
+    // is ok.
+    assert(slave_ptr->acked_offset >= slave_ptr->db_sent_offset);
+    if (min_binlog_ack_off > slave_ptr->acked_offset) {
+      min_binlog_ack_off = slave_ptr->acked_offset;
+    }
+  }
+  if (min_binlog_ack_off == LogOffset()) {
+    return Status::OK();
+  }
+  for (auto& slave_iter : slaves) {
+    std::shared_ptr<SlaveNode> slave_ptr = slave_iter.second;
+    std::lock_guard l(slave_ptr->slave_mu);
+    // maybe some info have changed, but it is not matter.  because slaves can
+    // deal with this problem.
+    RmNode rm_node(slave_ptr->Ip(), slave_ptr->Port(), slave_ptr->DBName(), slave_ptr->SessionId());
+    WriteTask task(rm_node, DbWriteChip(min_binlog_ack_off), LogOffset());
+    if (slave_ptr->db_sent_offset < min_binlog_ack_off) {
+      slave_ptr->db_sent_offset = min_binlog_ack_off;
+    }
+    g_pika_rm->ProduceWriteQueue(slave_ptr->Ip(), slave_ptr->Port(), db_info_.db_name_, {task});
+  }
   return Status::OK();
 }
 
@@ -589,7 +624,8 @@ void PikaReplicaManager::ProduceWriteQueue(const std::string& ip, int port, std:
 }
 
 int PikaReplicaManager::ConsumeWriteQueue() {
-  std::unordered_map<std::string, std::vector<std::vector<WriteTask>>> to_send_map;
+  std::unordered_map<std::string, std::vector<std::vector<WriteTask>>> binlog_to_send_map;
+  std::unordered_map<std::string, std::vector<std::vector<WriteTask>>> db_write_to_send_map;
   int counter = 0;
   {
     std::lock_guard l(write_queue_mu_);
@@ -603,21 +639,31 @@ int PikaReplicaManager::ConsumeWriteQueue() {
             break;
           }
           size_t batch_index = queue.size() > kBinlogSendBatchNum ? kBinlogSendBatchNum : queue.size();
-          std::vector<WriteTask> to_send;
+          std::vector<WriteTask> binlog_to_send;
+          std::vector<WriteTask> db_write_to_send;
           size_t batch_size = 0;
           for (size_t i = 0; i < batch_index; ++i) {
             WriteTask& task = queue.front();
-            batch_size += task.binlog_chip_.binlog_.size();
+            if (!task.is_db_write_) {
+              batch_size += task.binlog_chip_.binlog_.size();
+            }
             // make sure SerializeToString will not over 2G
             if (batch_size > PIKA_MAX_CONN_RBUF_HB) {
               break;
             }
-            to_send.push_back(task);
+            if (task.is_db_write_) {
+              db_write_to_send.push_back(task);
+            } else {
+              binlog_to_send.push_back(task);
+            }
             queue.pop();
             counter++;
           }
-          if (!to_send.empty()) {
-            to_send_map[ip_port].push_back(std::move(to_send));
+          if (!binlog_to_send.empty()) {
+            binlog_to_send_map[ip_port].push_back(std::move(binlog_to_send));
+          }
+          if (!db_write_to_send.empty()) {
+            db_write_to_send_map[ip_port].push_back(std::move(db_write_to_send));
           }
         }
       }
@@ -625,7 +671,7 @@ int PikaReplicaManager::ConsumeWriteQueue() {
   }
 
   std::vector<std::string> to_delete;
-  for (auto& iter : to_send_map) {
+  for (auto& iter : binlog_to_send_map) {
     std::string ip;
     int port = 0;
     if (!pstd::ParseIpPortString(iter.first, ip, port)) {
@@ -633,11 +679,42 @@ int PikaReplicaManager::ConsumeWriteQueue() {
       continue;
     }
     for (auto& to_send : iter.second) {
-      Status s = pika_repl_server_->SendSlaveBinlogChips(ip, port, to_send);
-      if (!s.ok()) {
+      // TODO(qiqi): we temporarily hard code this times here.
+      // If failed, we will retry it three times without any waiting time
+      int times = 3;
+      while (times--) {
+        Status s = pika_repl_server_->SendSlaveBinlogChips(ip, port, to_send);
+        if (s.ok()) {
+          break;
+        }
         LOG(WARNING) << "send binlog to " << ip << ":" << port << " failed, " << s.ToString();
-        to_delete.push_back(iter.first);
-        continue;
+        if (times == 0) {
+          to_delete.push_back(iter.first);
+        }
+      }
+    }
+  }
+
+  for (auto& iter : db_write_to_send_map) {
+    std::string ip;
+    int port = 0;
+    if (!pstd::ParseIpPortString(iter.first, ip, port)) {
+      LOG(WARNING) << "Parse ip_port error " << iter.first;
+      continue;
+    }
+    for (auto& to_send : iter.second) {
+      // TODO(qiqi): we temporarily hard code this times here.
+      // If failed, we will retry it three times without any waiting time
+      int times = 3;
+      while (times--) {
+        Status s = pika_repl_server_->SendSlaveDbWriteChips(ip, port, to_send);
+        if (s.ok()) {
+          break;
+        }
+        LOG(WARNING) << "send db write to " << ip << ":" << port << " failed, " << s.ToString();
+        if (times == 0) {
+          to_delete.push_back(iter.first);
+        }
       }
     }
   }
@@ -694,14 +771,17 @@ void PikaReplicaManager::ReplServerUpdateClientConnMap(const std::string& ip_por
 }
 
 Status PikaReplicaManager::UpdateSyncBinlogStatus(const RmNode& slave, const LogOffset& offset_start,
-                                                  const LogOffset& offset_end) {
+                                                  const LogOffset& offset_end, bool is_db_write) {
   std::shared_lock l(dbs_rw_);
   if (sync_master_dbs_.find(slave.NodeDBInfo()) == sync_master_dbs_.end()) {
     return Status::NotFound(slave.ToString() + " not found");
   }
   std::shared_ptr<SyncMasterDB> db = sync_master_dbs_[slave.NodeDBInfo()];
-  Status s = db->ConsensusUpdateSlave(slave.Ip(), slave.Port(), offset_start, offset_end);
+  Status s = db->ConsensusUpdateSlave(slave.Ip(), slave.Port(), offset_start, offset_end, is_db_write);
   if (!s.ok()) {
+    return s;
+  }
+  if(is_db_write) {
     return s;
   }
   s = db->SyncBinlogToWq(slave.Ip(), slave.Port());
@@ -1053,4 +1133,16 @@ void PikaReplicaManager::RmStatus(std::string* info) {
                << iter.second->ToStringStatus() << "\r\n";
   }
   info->append(tmp_stream.str());
+}
+
+Status PikaReplicaManager::TrySendWriteDb() {
+  std::shared_lock l(dbs_rw_);
+  for (auto& iter : sync_master_dbs_) {
+    std::shared_ptr<SyncMasterDB> db = iter.second;
+    Status s = db->TrySendWriteDb();
+    if (!s.ok()) {
+      return s;
+    }
+  }
+  return Status::OK();
 }

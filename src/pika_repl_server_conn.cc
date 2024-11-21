@@ -370,6 +370,11 @@ void PikaReplServerConn::HandleBinlogSyncRequest(void* arg) {
     return;
   }
 
+  // if some binlog has been writen in all slaves, we should try to send cmd to apply
+  // them in db in all slaves
+  BinlogOffset write_db_offset;
+  g_pika_rm->TrySendWriteDb();
+
   g_pika_server->SignalAuxiliary();
 }
 
@@ -419,6 +424,66 @@ void PikaReplServerConn::HandleRemoveSlaveNodeRequest(void* arg) {
   conn->NotifyWrite();
 }
 
+
+void PikaReplServerConn::HandleDBWriteSyncRequest(void* arg) {
+  std::unique_ptr<ReplServerTaskArg> task_arg(static_cast<ReplServerTaskArg*>(arg));
+  const std::shared_ptr<InnerMessage::InnerRequest> req = task_arg->req;
+  std::shared_ptr<net::PbConn> conn = task_arg->conn;
+  if (!req->has_db_write_sync()) {
+    LOG(WARNING) << "Pb parse error";
+    return;
+  }
+  const InnerMessage::InnerRequest::DbWriteSync& db_write_req = req->db_write_sync();
+  const InnerMessage::Node& node = db_write_req.node();
+  const std::string& db_name = db_write_req.db_name();
+
+  int32_t session_id = db_write_req.session_id();
+  const InnerMessage::BinlogOffset& ack_range_start = db_write_req.ack_range_start();
+  const InnerMessage::BinlogOffset& ack_range_end = db_write_req.ack_range_end();
+  BinlogOffset b_range_start(ack_range_start.filenum(), ack_range_start.offset());
+  BinlogOffset b_range_end(ack_range_end.filenum(), ack_range_end.offset());
+  LogicOffset l_range_start(ack_range_start.term(), ack_range_start.index());
+  LogicOffset l_range_end(ack_range_end.term(), ack_range_end.index());
+  LogOffset range_start(b_range_start, l_range_start);
+  LogOffset range_end(b_range_end, l_range_end);
+
+  std::shared_ptr<SyncMasterDB> master_db =
+      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  if (!master_db) {
+    LOG(WARNING) << "Sync Master DB: " << db_name <<  ", NotFound";
+    return;
+  }
+
+  if (!master_db->CheckSessionId(node.ip(), node.port(), db_name, session_id)) {
+    LOG(WARNING) << "Check Session failed " << node.ip() << ":" << node.port() << ", " << db_name;
+    return;
+  }
+
+  // Set ack info from slave
+  RmNode slave_node = RmNode(node.ip(), node.port(), db_name);
+
+  Status s = master_db->SetLastRecvTime(node.ip(), node.port(), pstd::NowMicros());
+  if (!s.ok()) {
+    LOG(WARNING) << "SetMasterLastRecvTime failed " << node.ip() << ":" << node.port() << ", " << db_name << " " << s.ToString();
+    conn->NotifyClose();
+    return;
+  }
+
+  // not the first_send the range_ack cant be 0
+  // set this case as ping
+  if (range_start.b_offset == BinlogOffset() && range_end.b_offset == BinlogOffset()) {
+    return;
+  }
+  s = g_pika_rm->UpdateSyncBinlogStatus(slave_node, range_start, range_end, true);
+  if (!s.ok()) {
+    LOG(WARNING) << "Update db write ack failed " << db_name << " " << s.ToString();
+    conn->NotifyClose();
+    return;
+  }
+
+  g_pika_server->SignalAuxiliary();
+}
+
 int PikaReplServerConn::DealMessage() {
   std::shared_ptr<InnerMessage::InnerRequest> req = std::make_shared<InnerMessage::InnerRequest>();
   bool parse_res = req->ParseFromArray(rbuf_ + cur_pos_ - header_len_, static_cast<int32_t>(header_len_));
@@ -455,6 +520,12 @@ int PikaReplServerConn::DealMessage() {
       auto task_arg =
           new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
       g_pika_rm->ScheduleReplServerBGTask(&PikaReplServerConn::HandleRemoveSlaveNodeRequest, task_arg);
+      break;
+    }
+    case InnerMessage::kDbWrite: {
+      auto task_arg =
+          new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
+      g_pika_rm->ScheduleReplServerBGTask(&PikaReplServerConn::HandleDBWriteSyncRequest, task_arg);
       break;
     }
     default:

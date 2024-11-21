@@ -69,12 +69,16 @@ class SlaveNode : public RmNode {
   SyncWindow sync_win;
   LogOffset sent_offset;
   LogOffset acked_offset;
+  SyncWindow db_write_sync_win;
+  LogOffset db_sent_offset;
+  LogOffset db_acked_offset;
 
   std::string ToStringStatus();
 
   std::shared_ptr<PikaBinlogReader> binlog_reader;
   pstd::Status InitBinlogFileReader(const std::shared_ptr<Binlog>& binlog, const BinlogOffset& offset);
-  pstd::Status Update(const LogOffset& start, const LogOffset& end, LogOffset* updated_offset);
+  pstd::Status Update(const LogOffset& start, const LogOffset& end, LogOffset* updated_offset,
+                      const bool is_db_write = false);
 
   pstd::Mutex slave_mu;
 };

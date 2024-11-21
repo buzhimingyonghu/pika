@@ -50,13 +50,14 @@ class SyncProgress {
   pstd::Status AddSlaveNode(const std::string& ip, int port, const std::string& db_name, int session_id);
   pstd::Status RemoveSlaveNode(const std::string& ip, int port);
   pstd::Status Update(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
-                LogOffset* committed_index);
+                      LogOffset* committed_index, const bool is_db_write = false);
   int SlaveSize();
 
  private:
   std::shared_mutex rwlock_;
   std::unordered_map<std::string, std::shared_ptr<SlaveNode>> slaves_;
   std::unordered_map<std::string, LogOffset> match_index_;
+  std::unordered_map<std::string, LogOffset> db_write_match_index_;
 };
 
 class MemLog {
@@ -110,7 +111,8 @@ class ConsensusCoordinator {
   pstd::Status Reset(const LogOffset& offset);
 
   pstd::Status ProposeLog(const std::shared_ptr<Cmd>& cmd_ptr);
-  pstd::Status UpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end);
+  pstd::Status UpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
+                           const bool is_db_write = false);
   pstd::Status AddSlaveNode(const std::string& ip, int port, int session_id);
   pstd::Status RemoveSlaveNode(const std::string& ip, int port);
   void UpdateTerm(uint32_t term);
