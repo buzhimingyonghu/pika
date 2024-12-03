@@ -552,6 +552,8 @@ void PikaClientConn::InitUser() {
 bool PikaClientConn::AuthRequired() const {
   // If the user does not have a password, and the user is valid, then the user does not need authentication
   // Otherwise, you need to determine whether go has been authenticated
+  LOG(INFO) << "IsAuthed: " << IsAuthed();
+  LOG(INFO) << "user_->Flags(): " << user_->Flags();
   if (IsAuthed()) {
     return false;
   }

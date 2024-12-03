@@ -224,7 +224,7 @@ class User {
   ~User() = default;
 
   std::string Name() const;
-  // inline uint32_t Flags() const { return flags_; };
+  inline uint32_t Flags() const { return flags_; };
   inline bool HasFlags(uint32_t flag) const { return flags_ & flag; };
   inline void AddFlags(uint32_t flag) { flags_ |= flag; };
   inline void DecFlags(uint32_t flag) { flags_ &= ~flag; };
