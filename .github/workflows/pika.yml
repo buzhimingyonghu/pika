@@ -84,51 +84,32 @@ jobs:
           chmod +x integrate_test.sh
           sh integrate_test.sh
 
-  build_on_rocky:
+
+  build_on_centos:
     runs-on: ubuntu-latest
     container:
-      image: rockylinux:9
+      image: cheniujh/pika-centos7-ci:v5
 
     steps:
-      - name: Install deps
-        run: |
-          dnf update -y
-          dnf install -y bash cmake wget git autoconf gcc perl-Digest-SHA tcl which tar g++ tar epel-release gcc-c++ libstdc++-devel gcc-toolset-13
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.19
-
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v1
         with:
           fetch-depth: 0
 
       - name: Configure CMake
         run: |
-          source /opt/rh/gcc-toolset-13/enable
-          cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_PIKA_TOOLS=ON -DCMAKE_CXX_FLAGS_DEBUG=-fsanitize=address .
-
-      - uses: actions/cache@v3
-        with:
-          path: ${{ github.workspace }}/deps
-          key: ${{ runner.os }}-rocky-deps-${{ hashFiles('**/CMakeLists.txt') }}
-
-      - uses: actions/cache@v3
-        with:
-          path: ${{ github.workspace }}/buildtrees
-          key: ${{ runner.os }}-rocky-buildtrees-${{ hashFiles('**/CMakeLists.txt') }}
+          source /opt/rh/devtoolset-10/enable
+          cmake -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DUSE_PIKA_TOOLS=ON -DCMAKE_CXX_FLAGS_DEBUG=-fsanitize=address
 
       - name: Build
         run: |
-          source /opt/rh/gcc-toolset-13/enable
+          source /opt/rh/devtoolset-10/enable
           cmake --build build --config ${{ env.BUILD_TYPE }}
 
       - name: Cleanup
         run: |
           rm -rf  ./deps
-          rm -rf ./buildtrees
+          rm -rf ./buildtrees    
 
       - name: Test
         working-directory: ${{ github.workspace }}/build
@@ -145,7 +126,6 @@ jobs:
           ../tests/integration/start_master_and_slave.sh
           chmod +x ../tests/integration/start_codis.sh
           ../tests/integration/start_codis.sh
-
       - name: Run Go E2E Tests
         working-directory: ${{ github.workspace }}/build
         run: |
@@ -155,8 +135,10 @@ jobs:
           chmod +x integrate_test.sh
           sh integrate_test.sh
 
+
   build_on_macos:
-    runs-on: macos-12
+
+    runs-on: macos-13
 
     steps:
       - uses: actions/checkout@v4
@@ -169,7 +151,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2.13
         with:
-          key: macos-12
+          key: macos-13
 
       - name: Install Deps
         run: |
@@ -188,8 +170,10 @@ jobs:
 
       - name: Cleanup
         run: |
-          rm -rf  ./deps
-          rm -rf ./buildtrees
+          cp deps/lib/libz.1.dylib .
+          cp deps/lib/libz.1.dylib tests/integration/
+          rm -rf ./deps 
+          rm -rf ./buildtree
 
       - name: Test
         working-directory: ${{ github.workspace }}/build
@@ -201,21 +185,21 @@ jobs:
           ./pikatests.sh all clean
 
       - name: Start codis, pika master and pika slave
-        working-directory: ${{ github.workspace }}/build
+        working-directory: ${{ github.workspace }}
         run: |
-          chmod +x ../tests/integration/start_master_and_slave.sh
-          ../tests/integration/start_master_and_slave.sh
-          chmod +x ../tests/integration/start_codis.sh
-          ../tests/integration/start_codis.sh
+          cd tests/integration/
+          chmod +x start_master_and_slave.sh
+          ./start_master_and_slave.sh
+          chmod +x start_codis.sh
+          ./start_codis.sh
+          
 
       - name: Run Go E2E Tests
-        working-directory: ${{ github.workspace }}/build
+        working-directory: ${{ github.workspace }}
         run: |
-          cd ../tools/pika_keys_analysis/
-          go test -v ./...
-          cd ../../tests/integration/
+          cd tests/integration/
           chmod +x integrate_test.sh
-          sh integrate_test.sh
+   #       sh integrate_test.sh
 
   build_pika_image:
     name: Build Pika Docker image

@@ -477,7 +477,11 @@ void Acl::UpdateDefaultUserPassword(const std::string& pass) {
   if (pass.empty()) {
     u->SetUser("nopass");
   } else {
-    u->SetUser(">" + pass);
+    if (g_pika_conf->userpass().empty()) {
+      u->SetUser("nopass");
+    } else {
+      u->SetUser(">" + pass);
+    }
   }
 }
 
