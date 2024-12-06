@@ -143,40 +143,44 @@ Status Binlog::GetProducerStatus(uint32_t* filenum, uint64_t* pro_offset, uint64
 // Note: mutex lock should be held
 Status Binlog::Put(const std::string& item) { return Put(item.c_str(), item.size()); }
 
-// Note: mutex lock should be held
+// 向 Binlog 中追加数据（写入日志文件）
+// 注意：调用此函数时需要先获取互斥锁
 Status Binlog::Put(const char* item, int len) {
   Status s;
 
-  /* Check to roll log file */
-  uint64_t filesize = queue_->Filesize();
-  if (filesize > file_size_) {
-    queue_.reset();
+  /* 检查是否需要滚动日志文件（创建新日志文件） */
+  uint64_t filesize = queue_->Filesize(); // 获取当前日志文件的大小
+  if (filesize > file_size_) { // 如果当前文件大小超过指定限制
+    queue_.reset();  // 释放当前文件句柄
     queue_ = nullptr;
 
-    pro_num_++;
-    std::string profile = NewFileName(filename, pro_num_);
-    pstd::NewWritableFile(profile, queue_);
+    pro_num_++;  // 当前文件编号递增
+    std::string profile = NewFileName(filename, pro_num_); // 生成新的文件名
+    pstd::NewWritableFile(profile, queue_);  // 创建新的日志文件并赋值给 queue_
 
     {
-      std::lock_guard l(version_->rwlock_);
-      version_->pro_offset_ = 0;
-      version_->pro_num_ = pro_num_;
-      version_->StableSave();
+      // 更新版本信息：将偏移量重置为 0，并保存新的文件编号
+      std::lock_guard l(version_->rwlock_); 
+      version_->pro_offset_ = 0; // 文件偏移量重置
+      version_->pro_num_ = pro_num_; // 文件编号更新
+      version_->StableSave(); // 持久化保存版本信息
     }
-    InitLogFile();
+    InitLogFile(); // 初始化新日志文件
   }
 
+  // 写入数据到日志文件
   int pro_offset;
-  s = Produce(Slice(item, len), &pro_offset);
-  if (s.ok()) {
-    std::lock_guard l(version_->rwlock_);
-    version_->pro_offset_ = pro_offset;
-    version_->logic_id_++;
-    version_->StableSave();
+  s = Produce(Slice(item, len), &pro_offset); // 将数据写入当前文件，返回写入偏移量
+  if (s.ok()) { // 如果写入成功
+    std::lock_guard l(version_->rwlock_); 
+    version_->pro_offset_ = pro_offset; // 更新文件中的最新偏移量
+    version_->logic_id_++; // 逻辑 ID 增加，用于记录写入操作的顺序号
+    version_->StableSave(); // 持久化保存版本信息
   }
 
-  return s;
+  return s; // 返回写入状态
 }
+
 
 Status Binlog::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n, int* temp_pro_offset) {
   Status s;

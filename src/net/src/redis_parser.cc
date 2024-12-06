@@ -201,33 +201,49 @@ RedisParserStatus RedisParser::RedisParserInit(RedisParserType type, const Redis
   return status_code_;
 }
 
+// 解析 Redis 的 "inline 命令" 格式（即不使用多行协议的简单命令）
 RedisParserStatus RedisParser::ProcessInlineBuffer() {
-  int pos;
-  int ret;
+  int pos;  // 用于存储找到的分隔符位置
+  int ret;  // 用于存储分割结果状态
+
+  // 查找下一个命令的分隔符（CRLF，即 \r\n）
   pos = FindNextSeparators();
-  if (pos == -1) {
-    // change rbuf_len_ to length_
+  if (pos == -1) {  // 如果未找到分隔符
+    // 检查输入缓冲区的长度是否超过了 Redis 的最大限制（默认是 64KB）
     if (length_ > REDIS_INLINE_MAXLEN) {
+      // 超过最大长度，设置解析器状态为 "错误 - 输入超长"
       SetParserStatus(kRedisParserError, kRedisParserFullError);
-      return status_code_;
+      return status_code_;  // 返回错误状态
     } else {
+      // 输入尚未完整，设置解析器状态为 "部分解析完成"
       SetParserStatus(kRedisParserHalf);
-      return status_code_;
+      return status_code_;  // 返回半完成状态
     }
   }
-  // args \r\n
+
+  // 如果找到分隔符，提取当前命令的内容
+  // `cur_pos_` 是当前解析的位置，`pos + 1` 是分隔符的结束位置
   std::string req_buf(input_buf_ + cur_pos_, pos + 1 - cur_pos_);
 
+  // 清空上一次解析的参数数组
   argv_.clear();
+
+  // 将命令字符串分割为命令及其参数，并存入 `argv_`
   ret = split2args(req_buf, argv_);
+
+  // 更新解析位置，跳过当前命令所占用的字节
   cur_pos_ = pos + 1;
 
+  // 检查分割结果是否失败
   if (ret == -1) {
+    // 分割失败，说明协议格式错误，设置解析器状态为 "错误 - 协议错误"
     SetParserStatus(kRedisParserError, kRedisParserProtoError);
-    return status_code_;
+    return status_code_;  // 返回错误状态
   }
+
+  // 分割成功，设置解析器状态为 "解析完成"
   SetParserStatus(kRedisParserDone);
-  return status_code_;
+  return status_code_;  // 返回完成状态
 }
 
 RedisParserStatus RedisParser::ProcessMultibulkBuffer() {
@@ -310,27 +326,44 @@ void RedisParser::PrintCurrentStatus() {
   LOG(INFO) << "input_buf len " << length_;
 }
 
+// 处理输入缓冲区，解析 Redis 请求或响应消息
 RedisParserStatus RedisParser::ProcessInputBuffer(const char* input_buf, int length, int* parsed_len) {
+  // 检查解析器的状态，确保它处于可继续处理的状态
   if (status_code_ == kRedisParserInitDone || status_code_ == kRedisParserHalf || status_code_ == kRedisParserDone) {
-    // TODO(): AZ: avoid copy
+    // 创建一个临时字符串 `tmp_str`，避免直接操作 `input_buf`（可以优化以避免拷贝）
+    // 将当前输入缓冲区的数据拼接到之前未完成的部分（`half_argv_`）后
     std::string tmp_str(input_buf, length);
     input_str_ = half_argv_ + tmp_str;
+
+    // 更新 `input_buf_` 和 `length_`，以便后续解析使用
     input_buf_ = input_str_.c_str();
     length_ = static_cast<int32_t>(length + half_argv_.size());
+
+    // 根据解析器的类型（请求或响应）处理相应的缓冲区
     if (redis_parser_type_ == REDIS_PARSER_REQUEST) {
-      ProcessRequestBuffer();
+      ProcessRequestBuffer();  // 解析 Redis 请求
     } else if (redis_parser_type_ == REDIS_PARSER_RESPONSE) {
-      ProcessResponseBuffer();
+      ProcessResponseBuffer();  // 解析 Redis 响应
     } else {
+      // 如果解析器类型未知，设置错误状态并返回
       SetParserStatus(kRedisParserError, kRedisParserInitError);
       return status_code_;
     }
-    // cur_pos_ starts from 0, val of cur_pos_ is the parsed_len
+
+    // 更新解析的长度（`cur_pos_` 表示当前已解析的字节数）
     *parsed_len = cur_pos_;
+
+    // 重置解析器状态，为下一次解析做好准备
     ResetRedisParser();
+
+    // 打印当前解析状态（目前被注释掉了，可以用于调试）
     // PrintCurrentStatus();
+
+    // 返回当前解析器的状态（成功或部分成功）
     return status_code_;
   }
+
+  // 如果解析器状态异常（不是初始化完成、半完成或已完成），设置错误状态并返回
   SetParserStatus(kRedisParserError, kRedisParserInitError);
   return status_code_;
 }
