@@ -1,0 +1,1 @@
+helm install pika ./pika && helm install pika-cluster ./pika-cluster
