@@ -31,16 +31,16 @@ PikaReplClient::PikaReplClient(int cron_interval, int keepalive_timeout) {
   client_thread_ = std::make_unique<PikaReplClientThread>(cron_interval, keepalive_timeout);
   client_thread_->set_thread_name("PikaReplClient");
   for (int i = 0; i < g_pika_conf->sync_binlog_thread_num(); i++) {
-      auto new_binlog_worker = std::make_unique<PikaReplBgWorker>(PIKA_SYNC_BUFFER_SIZE);
-      std::string binlog_worker_name = "ReplBinlogWorker" + std::to_string(i);
-      new_binlog_worker->SetThreadName(binlog_worker_name);
-      write_binlog_workers_.emplace_back(std::move(new_binlog_worker));
+    auto new_binlog_worker = std::make_unique<PikaReplBgWorker>(PIKA_SYNC_BUFFER_SIZE);
+    std::string binlog_worker_name = "ReplBinlogWorker" + std::to_string(i);
+    new_binlog_worker->SetThreadName(binlog_worker_name);
+    write_binlog_workers_.emplace_back(std::move(new_binlog_worker));
   }
   for (int i = 0; i < g_pika_conf->sync_thread_num(); ++i) {
-      auto new_db_worker = std::make_unique<PikaReplBgWorker>(PIKA_SYNC_BUFFER_SIZE);
-      std::string db_worker_name = "ReplWriteDBWorker" + std::to_string(i);
-      new_db_worker->SetThreadName(db_worker_name);
-      write_db_workers_.emplace_back(std::move(new_db_worker));
+    auto new_db_worker = std::make_unique<PikaReplBgWorker>(PIKA_SYNC_BUFFER_SIZE);
+    std::string db_worker_name = "ReplWriteDBWorker" + std::to_string(i);
+    new_db_worker->SetThreadName(db_worker_name);
+    write_db_workers_.emplace_back(std::move(new_db_worker));
   }
 }
 
@@ -63,12 +63,12 @@ int PikaReplClient::Start() {
     }
   }
   for (auto & db_worker : write_db_workers_) {
-        res = db_worker->StartThread();
-        if (res != net::kSuccess) {
-            LOG(FATAL) << "Start Pika Repl Write DB Worker Thread Error: " << res
-                       << (res == net::kCreateThreadError ? ": create thread error " : ": other error");
-        }
+    res = db_worker->StartThread();
+    if (res != net::kSuccess) {
+      LOG(FATAL) << "Start Pika Repl Write DB Worker Thread Error: " << res
+                 << (res == net::kCreateThreadError ? ": create thread error " : ": other error");
     }
+  }
   return res;
 }
 
@@ -132,16 +132,16 @@ void PikaReplClient::ScheduleWriteDBTask(const std::shared_ptr<Cmd>& cmd_ptr, co
 }
 
 size_t PikaReplClient::GetBinlogWorkerIndexByDBName(const std::string &db_name) {
-    char db_num_c = db_name.back();
-    int32_t db_num = db_num_c - '0';
+  char db_num_c = db_name.back();
+  int32_t db_num = db_num_c - '0';
     //Valid range of db_num is [0, MAX_DB_NUM)
-    if (db_num < 0 || db_num >= MAX_DB_NUM) {
+  if (db_num < 0 || db_num >= MAX_DB_NUM) {
         LOG(ERROR)
                 << "Corruption in consuming binlog: the last char of the db_name(extracted from binlog) is not a valid db num, the extracted db_num is "
-                << db_num_c << " while write_binlog_workers.size() is " << write_binlog_workers_.size();
+               << db_num_c << " while write_binlog_workers.size() is " << write_binlog_workers_.size();
         if (db_num < 0) { assert(false && "db_num invalid, check if the db_name in the request is valid, also check the ERROR Log of Pika."); }
-    }
-    return db_num % write_binlog_workers_.size();
+  }
+  return db_num % write_binlog_workers_.size();
 }
 
 size_t PikaReplClient::GetHashIndexByKey(const std::string& key) {

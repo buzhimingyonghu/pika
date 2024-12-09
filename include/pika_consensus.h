@@ -7,12 +7,12 @@
 
 #include <utility>
 
-#include "include/pika_define.h"
-#include "pstd/include/env.h"
 #include "include/pika_binlog_transverter.h"
 #include "include/pika_client_conn.h"
+#include "include/pika_define.h"
 #include "include/pika_slave_node.h"
 #include "include/pika_stable_log.h"
+#include "pstd/include/env.h"
 
 class Context : public pstd::noncopyable {
  public:
@@ -117,18 +117,19 @@ class ConsensusCoordinator {
   pstd::Status RemoveSlaveNode(const std::string& ip, int port);
   void UpdateTerm(uint32_t term);
   uint32_t term();
-
+  void PutOffsetIndex(LogOffset win_offset,uint64_t binlog_offset){
+    offset_index[win_offset] = binlog_offset;
+  }
   // invoked by follower
   pstd::Status ProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
-
+  pstd::Status ProcessLeaderDB(const uint64_t binlogoffset);
   // Negotiate
   pstd::Status LeaderNegotiate(const LogOffset& f_last_offset, bool* reject, std::vector<LogOffset>* hints);
   pstd::Status FollowerNegotiate(const std::vector<LogOffset>& hints, LogOffset* reply_offset);
-
+  void GetwriteDBOffset(LogOffset& end_offset,LogOffset& begin_offset);
   SyncProgress& SyncPros() { return sync_pros_; }
   std::shared_ptr<StableLog> StableLogger() { return stable_logger_; }
   std::shared_ptr<MemLog> MemLogger() { return mem_logger_; }
-
   LogOffset committed_index() {
     std::lock_guard lock(index_mu_);
     return committed_index_;
@@ -180,7 +181,7 @@ class ConsensusCoordinator {
   pstd::Status FindBinlogFileNum(const std::map<uint32_t, std::string>& binlogs, uint64_t target_index, uint32_t start_filenum,
                            uint32_t* founded_filenum);
   pstd::Status FindLogicOffsetBySearchingBinlog(const BinlogOffset& hint_offset, uint64_t target_index,
-                                          LogOffset* found_offset);
+                                                LogOffset* found_offset);
   pstd::Status FindLogicOffset(const BinlogOffset& start_offset, uint64_t target_index, LogOffset* found_offset);
   pstd::Status GetLogsBefore(const BinlogOffset& start_offset, std::vector<LogOffset>* hints);
 
@@ -201,5 +202,9 @@ class ConsensusCoordinator {
   SyncProgress sync_pros_;
   std::shared_ptr<StableLog> stable_logger_;
   std::shared_ptr<MemLog> mem_logger_;
+  std::unordered_map<uint64_t, std::shared_ptr<Cmd>> binlog_index;
+  std::unordered_map<LogOffset,uint64_t,hash_db_write_info>offset_index;
+  LogOffset end_db_offset=LogOffset();
+  LogOffset begin_db_offset=LogOffset();
 };
 #endif  // INCLUDE_PIKA_CONSENSUS_H_

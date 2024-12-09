@@ -22,7 +22,7 @@ class PikaReplClientConn : public net::PbConn {
   PikaReplClientConn(int fd, const std::string& ip_port, net::Thread* thread, void* worker_specific_data,
                      net::NetMultiplexer* mpx);
   ~PikaReplClientConn() override = default;
-
+  static void HandleDbWriteResponse(void* arg);
   static void HandleMetaSyncResponse(void* arg);
   static void HandleDBSyncResponse(void* arg);
   static void HandleTrySyncResponse(void* arg);

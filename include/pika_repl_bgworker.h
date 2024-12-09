@@ -33,6 +33,7 @@ class PikaReplBgWorker {
   void Schedule(net::TaskFunc func, void* arg);
   void Schedule(net::TaskFunc func, void* arg, std::function<void()>& call_back);
   static void HandleBGWorkerWriteBinlog(void* arg);
+  static void HandleBGWorkerDB(void* arg);
   static void HandleBGWorkerWriteDB(void* arg);
   static void WriteDBInSyncWay(const std::shared_ptr<Cmd>& c_ptr);
   void SetThreadName(const std::string& thread_name) {

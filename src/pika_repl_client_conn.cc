@@ -11,8 +11,8 @@
 
 #include "include/pika_rm.h"
 #include "include/pika_server.h"
-#include "pstd/include/pstd_string.h"
 #include "pika_inner_message.pb.h"
+#include "pstd/include/pstd_string.h"
 
 using pstd::Status;
 
@@ -24,7 +24,7 @@ PikaReplClientConn::PikaReplClientConn(int fd, const std::string& ip_port, net::
     : net::PbConn(fd, ip_port, thread, mpx) {}
 
 bool PikaReplClientConn::IsDBStructConsistent(const std::vector<DBStruct>& current_dbs,
-                                                 const std::vector<DBStruct>& expect_dbs) {
+                                              const std::vector<DBStruct>& expect_dbs) {
   if (current_dbs.size() != expect_dbs.size()) {
     return false;
   }
@@ -82,10 +82,41 @@ int PikaReplClientConn::DealMessage() {
                                           static_cast<void*>(task_arg));
       break;
     }
+    case InnerMessage::kDbWrite: {
+      const std::string& db_name = response->try_sync().slot().db_name();
+      // TrySync resp must contain db_name
+      assert(!db_name.empty());
+      auto task_arg =
+          new ReplClientTaskArg(response, std::dynamic_pointer_cast<PikaReplClientConn>(shared_from_this()));
+      g_pika_rm->ScheduleReplClientBGTaskByDBName(&PikaReplClientConn::HandleDbWriteResponse,
+                                                  static_cast<void*>(task_arg), db_name);
+      break;
+    }
     default:
       break;
   }
   return 0;
+}
+void PikaReplClientConn::HandleDbWriteResponse(void* arg) {
+  std::unique_ptr<ReplClientTaskArg> task_arg(static_cast<ReplClientTaskArg*>(arg));
+  std::shared_ptr<net::PbConn> conn = task_arg->conn;
+  std::shared_ptr<InnerMessage::InnerResponse> response = task_arg->res;
+
+  const InnerMessage::InnerResponse_DbWriteSync& dbwrite_sync_response = response->db_write_sync();
+  int32_t session_id = dbwrite_sync_response.session_id();               // 获取主库会话 ID
+  const InnerMessage::Slot& db_response = dbwrite_sync_response.slot();  // 获取响应中的数据库槽信息
+  const std::string& db_name = db_response.db_name();                    // 获取数据库名称
+  const InnerMessage::BinlogOffset& binlog_offset = dbwrite_sync_response.db_write_offset();
+
+  std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  if (!db) {
+    LOG(WARNING) << db_name << "Not found.";
+  }
+  db->ConsensusProcessLeaderDB(binlog_offset.offset());
+  LogOffset ack_end;
+  LogOffset ack_start;
+  db->ConsensusGetwriteDBOffset(ack_end,ack_start);
+  g_pika_rm->SendBinlogSyncAckRequest(db_name, ack_start, ack_end);
 }
 
 void PikaReplClientConn::HandleMetaSyncResponse(void* arg) {

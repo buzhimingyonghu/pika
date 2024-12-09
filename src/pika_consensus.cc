@@ -342,41 +342,64 @@ Status ConsensusCoordinator::ProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
 Status ConsensusCoordinator::InternalAppendLog(const std::shared_ptr<Cmd>& cmd_ptr) {
   return InternalAppendBinlog(cmd_ptr);
 }
+void ConsensusCoordinator::GetwriteDBOffset(LogOffset& end_offset,LogOffset& begin_offset)
+{
+  end_offset =end_db_offset;
+  begin_offset=begin_db_offset;
+}
+
+Status ConsensusCoordinator::ProcessLeaderDB(const uint64_t offset) {
+  end_db_offset=LogOffset();
+  begin_db_offset=LogOffset();
+  begin_db_offset.b_offset.offset=UINT64_MAX;
+  for (const auto& iter : offset_index) {
+    if (iter.first.b_offset.offset > offset || binlog_index.count(iter.second) == 0) {
+      continue;
+    }
+    auto cmd_ptr = binlog_index[iter.second];
+    auto opt = cmd_ptr->argv()[0];
+    if (pstd::StringToLower(opt) != kCmdNameFlushdb) {
+      InternalApplyFollower(cmd_ptr);
+    } else {
+      // this is a flushdb-binlog, both apply binlog and apply db are in sync way
+      // ensure all writeDB task that submitted before has finished before we exec this flushdb
+      int32_t wait_ms = 250;
+      while (g_pika_rm->GetUnfinishedAsyncWriteDBTaskCount(db_name_) > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
+        wait_ms *= 2;
+        wait_ms = wait_ms < 3000 ? wait_ms : 3000;
+      }
+      // apply flushdb-binlog in sync way
+      Status s = InternalAppendLog(cmd_ptr);
+      // applyDB in sync way
+      PikaReplBgWorker::WriteDBInSyncWay(cmd_ptr);
+    }
+    if (iter.first.b_offset.offset > end_db_offset.b_offset.offset) {
+      end_db_offset = iter.first;
+    }
+    if (iter.first.b_offset.offset < begin_db_offset.b_offset.offset) {
+      begin_db_offset = iter.first;
+    }
+  }
+  return Status::OK();
+}
 
 // precheck if prev_offset match && drop this log if this log exist
 Status ConsensusCoordinator::ProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
   LogOffset last_index = mem_logger_->last_offset();
   if (attribute.logic_id() < last_index.l_offset.index) {
-    LOG(WARNING) << DBInfo(db_name_).ToString() << "Drop log from leader logic_id "
-                 << attribute.logic_id() << " cur last index " << last_index.l_offset.index;
+    LOG(WARNING) << DBInfo(db_name_).ToString() << "Drop log from leader logic_id " << attribute.logic_id()
+                 << " cur last index " << last_index.l_offset.index;
     return Status::OK();
   }
 
   auto opt = cmd_ptr->argv()[0];
-  if (pstd::StringToLower(opt) != kCmdNameFlushdb) {
-    // apply binlog in sync way
-    Status s = InternalAppendLog(cmd_ptr);
-    // apply db in async way
-    InternalApplyFollower(cmd_ptr);
-  } else {
-    // this is a flushdb-binlog, both apply binlog and apply db are in sync way
-    // ensure all writeDB task that submitted before has finished before we exec this flushdb
-    int32_t wait_ms = 250;
-    while (g_pika_rm->GetUnfinishedAsyncWriteDBTaskCount(db_name_) > 0) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(wait_ms));
-      wait_ms *= 2;
-      wait_ms = wait_ms < 3000 ? wait_ms : 3000;
-    }
-    // apply flushdb-binlog in sync way
-    Status s = InternalAppendLog(cmd_ptr);
-    // applyDB in sync way
-    PikaReplBgWorker::WriteDBInSyncWay(cmd_ptr);
-  }
+  Status s = InternalAppendLog(cmd_ptr);
+  binlog_index[attribute.offset()] = cmd_ptr;
   return Status::OK();
 }
-
-Status ConsensusCoordinator::UpdateSlave(const std::string& ip, int port, const LogOffset& start,
-                                         const LogOffset& end, const bool is_db_write) {
+Status ConsensusCoordinator::UpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
+                                         const bool is_db_write) {
   LogOffset committed_index;
   Status s = sync_pros_.Update(ip, port, start, end, &committed_index, is_db_write);
   if (!s.ok()) {

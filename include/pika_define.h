@@ -217,6 +217,11 @@ struct hash_db_info {
   }
 };
 
+struct hash_db_write_info {
+  size_t operator()(const LogOffset& n) const {
+    return std::hash<uint64_t>()(n.b_offset.offset);
+  }
+};
 class Node {
  public:
   Node(std::string  ip, int port) : ip_(std::move(ip)), port_(port) {}

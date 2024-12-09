@@ -71,6 +71,8 @@ class SyncMasterDB : public SyncDB {
                                     const bool is_db_write = false);
   pstd::Status ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr);
   pstd::Status ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
+  pstd::Status ConsensusProcessLeaderDB(const uint64_t offset);
+  void ConsensusGetwriteDBOffset(LogOffset& end_offset,LogOffset& begin_offset);
   LogOffset ConsensusCommittedIndex();
   LogOffset ConsensusLastIndex();
 
@@ -82,7 +84,9 @@ class SyncMasterDB : public SyncDB {
     }
     return coordinator_.StableLogger()->Logger();
   }
-
+  void PutCoordinatorOffsetIndex(LogOffset win_offset,uint64_t binlog_offset){
+    coordinator_.PutOffsetIndex(win_offset,binlog_offset);
+  }
   // get offset location where all slaves will write db and if some slaves send
   // write db cmd, this location will be put into WQ
   Status TrySendWriteDb();
@@ -189,7 +193,7 @@ class PikaReplicaManager {
   void ScheduleReplClientBGTask(net::TaskFunc func, void* arg);
   void ScheduleWriteBinlogTask(const std::string& db_name,
                                const std::shared_ptr<InnerMessage::InnerResponse>& res,
-                               const std::shared_ptr<net::PbConn>& conn, void* res_private_data);
+                      const std::shared_ptr<net::PbConn>& conn, void* res_private_data);
   void ScheduleWriteDBTask(const std::shared_ptr<Cmd>& cmd_ptr, const std::string& db_name);
   void ScheduleReplClientBGTaskByDBName(net::TaskFunc , void* arg, const std::string &db_name);
   void ReplServerRemoveClientConn(int fd);

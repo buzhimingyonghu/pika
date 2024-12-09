@@ -27,17 +27,13 @@ extern PikaServer* g_pika_server;
 
 /* SyncDB */
 
-SyncDB::SyncDB(const std::string& db_name)
-    : db_info_(db_name) {}
+SyncDB::SyncDB(const std::string& db_name) : db_info_(db_name) {}
 
-std::string SyncDB::DBName() {
-  return db_info_.db_name_;
-}
+std::string SyncDB::DBName() { return db_info_.db_name_; }
 
 /* SyncMasterDB*/
 
-SyncMasterDB::SyncMasterDB(const std::string& db_name)
-    : SyncDB(db_name),  coordinator_(db_name) {}
+SyncMasterDB::SyncMasterDB(const std::string& db_name) : SyncDB(db_name), coordinator_(db_name) {}
 
 int SyncMasterDB::GetNumberOfSlaveNode() { return coordinator_.SyncPros().SlaveSize(); }
 
@@ -62,8 +58,7 @@ Status SyncMasterDB::GetSlaveNodeSession(const std::string& ip, int port, int32_
 Status SyncMasterDB::AddSlaveNode(const std::string& ip, int port, int session_id) {
   Status s = coordinator_.AddSlaveNode(ip, port, session_id);
   if (!s.ok()) {
-    LOG(WARNING) << "Add Slave Node Failed, db: " << SyncDBInfo().ToString() << ", ip_port: " << ip << ":"
-                 << port;
+    LOG(WARNING) << "Add Slave Node Failed, db: " << SyncDBInfo().ToString() << ", ip_port: " << ip << ":" << port;
     return s;
   }
   LOG(INFO) << "Add Slave Node, db: " << SyncDBInfo().ToString() << ", ip_port: " << ip << ":" << port;
@@ -73,8 +68,7 @@ Status SyncMasterDB::AddSlaveNode(const std::string& ip, int port, int session_i
 Status SyncMasterDB::RemoveSlaveNode(const std::string& ip, int port) {
   Status s = coordinator_.RemoveSlaveNode(ip, port);
   if (!s.ok()) {
-    LOG(WARNING) << "Remove Slave Node Failed, db: " << SyncDBInfo().ToString() << ", ip_port: " << ip
-                 << ":" << port;
+    LOG(WARNING) << "Remove Slave Node Failed, db: " << SyncDBInfo().ToString() << ", ip_port: " << ip << ":" << port;
     return s;
   }
   LOG(INFO) << "Remove Slave Node, DB: " << SyncDBInfo().ToString() << ", ip_port: " << ip << ":" << port;
@@ -97,8 +91,8 @@ Status SyncMasterDB::ActivateSlaveBinlogSync(const std::string& ip, int port, co
     if (!s.ok()) {
       return Status::Corruption("Init binlog file reader failed" + s.ToString());
     }
-    //Since we init a new reader, we should drop items in write queue and reset sync_window.
-    //Or the sent_offset and acked_offset will not match
+    // Since we init a new reader, we should drop items in write queue and reset sync_window.
+    // Or the sent_offset and acked_offset will not match
     g_pika_rm->DropItemInOneWriteQueue(ip, port, slave_ptr->DBName());
     slave_ptr->sync_win.Reset();
     slave_ptr->b_state = kReadFromFile;
@@ -398,8 +392,7 @@ int32_t SyncMasterDB::GenSessionId() {
   return session_id_++;
 }
 
-bool SyncMasterDB::CheckSessionId(const std::string& ip, int port, const std::string& db_name,
-                                  int session_id) {
+bool SyncMasterDB::CheckSessionId(const std::string& ip, int port, const std::string& db_name, int session_id) {
   std::shared_ptr<SlaveNode> slave_ptr = GetSlaveNode(ip, port);
   if (!slave_ptr) {
     LOG(WARNING) << "Check SessionId Get Slave Node Error: " << ip << ":" << port << "," << db_name;
@@ -418,11 +411,17 @@ bool SyncMasterDB::CheckSessionId(const std::string& ip, int port, const std::st
 Status SyncMasterDB::ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
   return coordinator_.ProposeLog(cmd_ptr);
 }
+void SyncMasterDB::ConsensusGetwriteDBOffset(LogOffset& end_offset,LogOffset& begin_offset)
+{
+  coordinator_.GetwriteDBOffset(end_offset, begin_offset);
+}
 
 Status SyncMasterDB::ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
   return coordinator_.ProcessLeaderLog(cmd_ptr, attribute);
 }
-
+Status SyncMasterDB::ConsensusProcessLeaderDB(const uint64_t offset) {
+  return coordinator_.ProcessLeaderDB(offset);
+}
 LogOffset SyncMasterDB::ConsensusCommittedIndex() { return coordinator_.committed_index(); }
 
 LogOffset SyncMasterDB::ConsensusLastIndex() { return coordinator_.MemLogger()->last_offset(); }
@@ -436,8 +435,7 @@ std::unordered_map<std::string, std::shared_ptr<SlaveNode>> SyncMasterDB::GetAll
 }
 
 /* SyncSlaveDB */
-SyncSlaveDB::SyncSlaveDB(const std::string& db_name)
-    : SyncDB(db_name) {
+SyncSlaveDB::SyncSlaveDB(const std::string& db_name) : SyncDB(db_name) {
   std::string dbsync_path = g_pika_conf->db_sync_path() + "/" + db_name;
   rsync_cli_.reset(new rsync::RsyncClient(dbsync_path, db_name));
   m_info_.SetLastRecvTime(pstd::NowMicros());
@@ -533,9 +531,7 @@ std::string SyncSlaveDB::LocalIp() {
   return local_ip_;
 }
 
-void SyncSlaveDB::StopRsync() {
-  rsync_cli_->Stop();
-}
+void SyncSlaveDB::StopRsync() { rsync_cli_->Stop(); }
 
 pstd::Status SyncSlaveDB::ActivateRsync() {
   Status s = Status::OK();
@@ -551,8 +547,11 @@ pstd::Status SyncSlaveDB::ActivateRsync() {
     rsync_init_retry_count_ += 1;
     if (rsync_init_retry_count_ >= kMaxRsyncInitReTryTimes) {
       SetReplState(ReplState::kError);
-      LOG(ERROR) << "Full Sync Stage - Rsync Init failed: Slave failed to pull meta info(generated by bgsave task in Master) from Master after MaxRsyncInitReTryTimes("
-                 << kMaxRsyncInitReTryTimes << " times) is reached. This usually means the Master's bgsave task has costed an unexpected-long time.";
+      LOG(ERROR)
+          << "Full Sync Stage - Rsync Init failed: Slave failed to pull meta info(generated by bgsave task in Master) "
+             "from Master after MaxRsyncInitReTryTimes("
+          << kMaxRsyncInitReTryTimes
+          << " times) is reached. This usually means the Master's bgsave task has costed an unexpected-long time.";
     }
     return Status::Error("rsync client init failed!");
   }
@@ -729,11 +728,11 @@ int PikaReplicaManager::ConsumeWriteQueue() {
 }
 
 void PikaReplicaManager::DropItemInOneWriteQueue(const std::string& ip, int port, const std::string& db_name) {
-    std::lock_guard l(write_queue_mu_);
-    std::string index = ip + ":" + std::to_string(port);
-    if (write_queues_.find(index) != write_queues_.end()) {
-      write_queues_[index].erase(db_name);
-    }
+  std::lock_guard l(write_queue_mu_);
+  std::string index = ip + ":" + std::to_string(port);
+  if (write_queues_.find(index) != write_queues_.end()) {
+    write_queues_[index].erase(db_name);
+  }
 }
 
 void PikaReplicaManager::DropItemInWriteQueue(const std::string& ip, int port) {
@@ -750,7 +749,7 @@ void PikaReplicaManager::ScheduleReplClientBGTask(net::TaskFunc func, void* arg)
   pika_repl_client_->Schedule(func, arg);
 }
 
-void PikaReplicaManager::ScheduleReplClientBGTaskByDBName(net::TaskFunc func, void* arg, const std::string &db_name) {
+void PikaReplicaManager::ScheduleReplClientBGTaskByDBName(net::TaskFunc func, void* arg, const std::string& db_name) {
   pika_repl_client_->ScheduleByDBName(func, arg, db_name);
 }
 
@@ -781,7 +780,7 @@ Status PikaReplicaManager::UpdateSyncBinlogStatus(const RmNode& slave, const Log
   if (!s.ok()) {
     return s;
   }
-  if(is_db_write) {
+  if (is_db_write) {
     return s;
   }
   s = db->SyncBinlogToWq(slave.Ip(), slave.Port());
@@ -797,8 +796,7 @@ bool PikaReplicaManager::CheckSlaveDBState(const std::string& ip, const int port
     db = iter.second;
     if (db->State() == ReplState::kDBNoConnect && db->MasterIp() == ip &&
         db->MasterPort() + kPortShiftReplServer == port) {
-      LOG(INFO) << "DB: " << db->SyncDBInfo().ToString()
-                << " has been dbslaveof no one, then will not try reconnect.";
+      LOG(INFO) << "DB: " << db->SyncDBInfo().ToString() << " has been dbslaveof no one, then will not try reconnect.";
       return false;
     }
   }
@@ -872,14 +870,13 @@ Status PikaReplicaManager::CheckDBRole(const std::string& db, int* role) {
   *role = 0;
   DBInfo p_info(db);
   if (sync_master_dbs_.find(p_info) == sync_master_dbs_.end()) {
-    return Status::NotFound(db  + " not found");
+    return Status::NotFound(db + " not found");
   }
   if (sync_slave_dbs_.find(p_info) == sync_slave_dbs_.end()) {
     return Status::NotFound(db + " not found");
   }
   if (sync_master_dbs_[p_info]->GetNumberOfSlaveNode() != 0 ||
-      (sync_master_dbs_[p_info]->GetNumberOfSlaveNode() == 0 &&
-       sync_slave_dbs_[p_info]->State() == kNoConnect)) {
+      (sync_master_dbs_[p_info]->GetNumberOfSlaveNode() == 0 && sync_slave_dbs_[p_info]->State() == kNoConnect)) {
     *role |= PIKA_ROLE_MASTER;
   }
   if (sync_slave_dbs_[p_info]->State() != ReplState::kNoConnect) {
@@ -974,9 +971,8 @@ Status PikaReplicaManager::SendTrySyncRequest(const std::string& db_name) {
     return Status::Corruption("Slave DB not found");
   }
 
-  Status status =
-      pika_repl_client_->SendTrySync(slave_db->MasterIp(), slave_db->MasterPort(), db_name,
-                                     boffset, slave_db->LocalIp());
+  Status status = pika_repl_client_->SendTrySync(slave_db->MasterIp(), slave_db->MasterPort(), db_name, boffset,
+                                                 slave_db->LocalIp());
 
   if (status.ok()) {
     slave_db->SetReplState(ReplState::kWaitReply);
@@ -1007,8 +1003,8 @@ Status PikaReplicaManager::SendDBSyncRequest(const std::string& db_name) {
     return Status::Corruption("Slave DB not found");
   }
 
-  Status status = pika_repl_client_->SendDBSync(slave_db->MasterIp(), slave_db->MasterPort(),
-                                                    db_name, boffset, slave_db->LocalIp());
+  Status status = pika_repl_client_->SendDBSync(slave_db->MasterIp(), slave_db->MasterPort(), db_name, boffset,
+                                                slave_db->LocalIp());
 
   Status s;
   if (status.ok()) {
@@ -1030,8 +1026,8 @@ Status PikaReplicaManager::SendBinlogSyncAckRequest(const std::string& db, const
     LOG(WARNING) << "Slave DB: " << db << ":, NotFound";
     return Status::Corruption("Slave DB not found");
   }
-  return pika_repl_client_->SendBinlogSync(slave_db->MasterIp(), slave_db->MasterPort(), db,
-                                           ack_start, ack_end, slave_db->LocalIp(), is_first_send);
+  return pika_repl_client_->SendBinlogSync(slave_db->MasterIp(), slave_db->MasterPort(), db, ack_start, ack_end,
+                                           slave_db->LocalIp(), is_first_send);
 }
 
 Status PikaReplicaManager::CloseReplClientConn(const std::string& ip, int32_t port) {
@@ -1077,8 +1073,7 @@ Status PikaReplicaManager::RunSyncSlaveDBStateMachine() {
         continue;
       }
 
-      std::shared_ptr<DB> db =
-          g_pika_server->GetDB(p_info.db_name_);
+      std::shared_ptr<DB> db = g_pika_server->GetDB(p_info.db_name_);
       if (db) {
         if (s_db->IsRsyncExited()) {
           db->TryUpdateMasterOffset();
@@ -1123,14 +1118,12 @@ void PikaReplicaManager::RmStatus(std::string* info) {
   tmp_stream << "Master DB(" << sync_master_dbs_.size() << "):"
              << "\r\n";
   for (auto& iter : sync_master_dbs_) {
-    tmp_stream << " DB " << iter.second->SyncDBInfo().ToString() << "\r\n"
-               << iter.second->ToStringStatus() << "\r\n";
+    tmp_stream << " DB " << iter.second->SyncDBInfo().ToString() << "\r\n" << iter.second->ToStringStatus() << "\r\n";
   }
   tmp_stream << "Slave DB(" << sync_slave_dbs_.size() << "):"
              << "\r\n";
   for (auto& iter : sync_slave_dbs_) {
-    tmp_stream << " DB " << iter.second->SyncDBInfo().ToString() << "\r\n"
-               << iter.second->ToStringStatus() << "\r\n";
+    tmp_stream << " DB " << iter.second->SyncDBInfo().ToString() << "\r\n" << iter.second->ToStringStatus() << "\r\n";
   }
   info->append(tmp_stream.str());
 }

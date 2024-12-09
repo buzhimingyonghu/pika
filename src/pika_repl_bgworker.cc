@@ -7,6 +7,8 @@
 
 #include "include/pika_repl_bgworker.h"
 #include "include/pika_cmd_table_manager.h"
+#include "include/pika_conf.h"
+#include "include/pika_repl_bgworker.h"
 #include "include/pika_rm.h"
 #include "include/pika_server.h"
 #include "pstd/include/pstd_defer.h"
@@ -139,6 +141,11 @@ void PikaReplBgWorker::HandleBGWorkerWriteBinlog(void* arg) {
       slave_db->SetReplState(ReplState::kTryConnect);
       return;
     }
+    std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+    LogOffset cur_logoffset;
+    ParseBinlogOffset(binlog_res.binlog_offset(),&cur_logoffset);
+    db->PutCoordinatorOffsetIndex(cur_logoffset,worker->binlog_item_.offset());
+    
     const char* redis_parser_start = binlog_res.binlog().data() + BINLOG_ENCODE_LEN;
     int redis_parser_len = static_cast<int>(binlog_res.binlog().size()) - BINLOG_ENCODE_LEN;
     int processed_len = 0;
