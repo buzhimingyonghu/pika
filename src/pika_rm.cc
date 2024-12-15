@@ -384,8 +384,17 @@ Status SyncMasterDB::ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
   return coordinator_.ProposeLog(cmd_ptr);
 }
 
+void SyncMasterDB::ConsensusGetwriteDBOffset(LogOffset& end_offset,LogOffset& begin_offset)
+{
+  coordinator_.GetwriteDBOffset(end_offset, begin_offset);
+}
+
 Status SyncMasterDB::ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
   return coordinator_.ProcessLeaderLog(cmd_ptr, attribute);
+}
+
+Status SyncMasterDB::ConsensusProcessLeaderDB(const uint64_t offset) {
+  return coordinator_.ProcessLeaderDB(offset);
 }
 
 LogOffset SyncMasterDB::ConsensusCommittedIndex() { return coordinator_.committed_index(); }

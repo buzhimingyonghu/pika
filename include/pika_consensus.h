@@ -13,6 +13,9 @@
 #include "include/pika_client_conn.h"
 #include "include/pika_slave_node.h"
 #include "include/pika_stable_log.h"
+#include "include/pika_define.h"
+#include "pstd/include/env.h"
+
 
 class Context : public pstd::noncopyable {
  public:
@@ -114,10 +117,16 @@ class ConsensusCoordinator {
   pstd::Status AddSlaveNode(const std::string& ip, int port, int session_id);
   pstd::Status RemoveSlaveNode(const std::string& ip, int port);
   void UpdateTerm(uint32_t term);
+  void PutOffsetIndex(LogOffset win_offset,uint64_t binlog_offset){
+    offset_index[win_offset] = binlog_offset;
+  }
   uint32_t term();
 
   // invoked by follower
-  pstd::Status ProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
+  pstd::Status ProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute, bool is_write_db=true);
+  pstd::Status ProcessLeaderDB(const uint64_t binlogoffset);
+  void GetwriteDBOffset(LogOffset& end_offset,LogOffset& begin_offset);
+
 
   // Negotiate
   pstd::Status LeaderNegotiate(const LogOffset& f_last_offset, bool* reject, std::vector<LogOffset>* hints);
@@ -199,5 +208,9 @@ class ConsensusCoordinator {
   SyncProgress sync_pros_;
   std::shared_ptr<StableLog> stable_logger_;
   std::shared_ptr<MemLog> mem_logger_;
+  std::unordered_map<uint64_t, std::shared_ptr<Cmd>> binlog_index;
+  std::unordered_map<LogOffset,uint64_t,hash_db_write_info>offset_index;
+  LogOffset end_db_offset_=LogOffset();
+  LogOffset begin_db_offset_=LogOffset();
 };
 #endif  // INCLUDE_PIKA_CONSENSUS_H_

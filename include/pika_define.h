@@ -184,6 +184,12 @@ struct BinlogChip {
   }
 };
 
+struct DbWriteChip {
+  LogOffset offset_;
+  DbWriteChip(const LogOffset& offset) : offset_(offset) {}
+  DbWriteChip(const DbWriteChip& chip) { offset_ = chip.offset_; }
+};
+
 struct DBInfo {
   DBInfo(std::string db_name)
       : db_name_(std::move(db_name)) {}
@@ -210,7 +216,11 @@ struct hash_db_info {
     return std::hash<std::string>()(n.db_name_);
   }
 };
-
+struct hash_db_write_info {
+  size_t operator()(const LogOffset& n) const {
+    return std::hash<uint64_t>()(n.b_offset.offset);
+  }
+};
 class Node {
  public:
   Node(std::string  ip, int port) : ip_(std::move(ip)), port_(port) {}
@@ -273,10 +283,14 @@ class RmNode : public Node {
 
 struct WriteTask {
   struct RmNode rm_node_;
-  struct BinlogChip binlog_chip_;
+  struct BinlogChip binlog_chip_ = BinlogChip(LogOffset(), "");
+  struct DbWriteChip db_write_chip_ = DbWriteChip(LogOffset());
+  bool is_db_write_ = false;
   LogOffset prev_offset_;
   WriteTask(const RmNode& rm_node, const BinlogChip& binlog_chip, const LogOffset& prev_offset)
       : rm_node_(rm_node), binlog_chip_(binlog_chip), prev_offset_(prev_offset) {}
+  WriteTask(const RmNode& rm_node, const DbWriteChip& db_write_chip, const LogOffset& prev_offset)
+      : rm_node_(rm_node), db_write_chip_(db_write_chip), is_db_write_(true), prev_offset_(prev_offset) {}
 };
 
 // slowlog define

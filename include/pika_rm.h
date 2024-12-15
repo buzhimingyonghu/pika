@@ -70,6 +70,8 @@ class SyncMasterDB : public SyncDB {
   pstd::Status ConsensusUpdateSlave(const std::string& ip, int port, const LogOffset& start, const LogOffset& end);
   pstd::Status ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr);
   pstd::Status ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
+  pstd::Status ConsensusProcessLeaderDB(const uint64_t offset);
+  void ConsensusGetwriteDBOffset(LogOffset& end_offset,LogOffset& begin_offset);
   LogOffset ConsensusCommittedIndex();
   LogOffset ConsensusLastIndex();
 
@@ -80,6 +82,9 @@ class SyncMasterDB : public SyncDB {
       return nullptr;
     }
     return coordinator_.StableLogger()->Logger();
+  }
+  void PutCoordinatorOffsetIndex(LogOffset win_offset,uint64_t binlog_offset){
+    coordinator_.PutOffsetIndex(win_offset,binlog_offset);
   }
 
  private:

@@ -82,10 +82,41 @@ int PikaReplClientConn::DealMessage() {
                                           static_cast<void*>(task_arg));
       break;
     }
+    case InnerMessage::kDbWrite: {
+      const std::string& db_name = response->try_sync().slot().db_name();
+      assert(!db_name.empty());
+      auto task_arg =
+          new ReplClientTaskArg(response, std::dynamic_pointer_cast<PikaReplClientConn>(shared_from_this()));
+      g_pika_rm->ScheduleReplClientBGTaskByDBName(&PikaReplClientConn::HandleDbWriteResponse,
+                                                  static_cast<void*>(task_arg), db_name);
+      break;
+    }
     default:
       break;
   }
   return 0;
+}
+
+void PikaReplClientConn::HandleDbWriteResponse(void* arg) {
+  std::unique_ptr<ReplClientTaskArg> task_arg(static_cast<ReplClientTaskArg*>(arg));
+  std::shared_ptr<net::PbConn> conn = task_arg->conn;
+  std::shared_ptr<InnerMessage::InnerResponse> response = task_arg->res;
+
+  const InnerMessage::InnerResponse_DbWriteSync& dbwrite_sync_response = response->db_write_sync();
+  int32_t session_id = dbwrite_sync_response.session_id();              
+  const InnerMessage::Slot& db_response = dbwrite_sync_response.slot();  
+  const std::string& db_name = db_response.db_name();                  
+  const InnerMessage::BinlogOffset& binlog_offset = dbwrite_sync_response.db_write_offset();
+
+  std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  if (!db) {
+    LOG(WARNING) << db_name << "Not found.";
+  }
+  db->ConsensusProcessLeaderDB(binlog_offset.offset());
+  LogOffset ack_end;
+  LogOffset ack_start;
+  db->ConsensusGetwriteDBOffset(ack_end,ack_start);
+  g_pika_rm->SendBinlogSyncAckRequest(db_name, ack_start, ack_end);
 }
 
 void PikaReplClientConn::HandleMetaSyncResponse(void* arg) {
