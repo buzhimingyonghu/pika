@@ -30,25 +30,26 @@ void* PikaAuxiliaryThread::ThreadMain() {
       g_pika_rm->RunSyncSlaveDBStateMachine();
     }
 
-    // 检查同步超时，pstd::NowMicros() 获取当前时间戳（微秒级）
+    // 1，检查是否有节点接收超时，是，从列表删除节点
+    // 2，检查是否有发送超时，是，发送keepKeepAliveTimeout
     pstd::Status s = g_pika_rm->CheckSyncTimeout(pstd::NowMicros());
     if (!s.ok()) {
       // 如果同步超时，记录警告日志
       LOG(WARNING) << s.ToString();
     }
 
-    // 检查是否处于领导保护模式
+    // 检查Master 是否完成 同步 and 提交binlog
     g_pika_server->CheckLeaderProtectedMode();
 
-    // TODO: 需要处理超时逻辑
-    // 触发发送 binlog 同步请求
+    // 该从节点的已发送偏移量与已确认偏移量是否相等
+    // 然后从binlog窗口读取，binlog任务，然后发送
     s = g_pika_server->TriggerSendBinlogSync();
     if (!s.ok()) {
       // 如果 binlog 同步请求失败，记录警告日志
       LOG(WARNING) << s.ToString();
     }
 
-    // 向对等服务器发送数据
+    // 处理发送队列的任务，发送到对应的从服务器
     int res = g_pika_server->SendToPeer();
     if (res == 0) {
       // 如果没有数据发送，睡眠 100 毫秒

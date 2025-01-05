@@ -10,7 +10,8 @@
 build
 cmake-build-debug
 cmake-build-release
-
+Mit-6.5840
+pika_slave
 # Precompiled Headers
 *.gch
 *.pch

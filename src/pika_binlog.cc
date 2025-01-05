@@ -147,22 +147,31 @@ Status Binlog::IsOpened() {
   return Status::OK();
 }
 
+// GetProducerStatus 方法用于获取生产者的状态，包括文件号、偏移量、逻辑ID和term。
 Status Binlog::GetProducerStatus(uint32_t* filenum, uint64_t* pro_offset, uint32_t* term, uint64_t* logic_id) {
+  // 检查 binlog 是否已经打开，如果没有打开，返回 Busy 状态。
   if (!opened_.load()) {
-    return Status::Busy("Binlog is not open yet");
+    return Status::Busy("Binlog is not open yet");  // 如果未打开，返回一个忙碌的状态。
   }
 
+  // 使用 std::shared_lock 进行读锁定，确保对 version_ 的并发读取是安全的。
   std::shared_lock l(version_->rwlock_);
 
-  *filenum = version_->pro_num_;
-  *pro_offset = version_->pro_offset_;
+  // 从 version_ 中读取生产者的状态信息，并赋值给传入的参数
+  *filenum = version_->pro_num_;        // 获取当前生产者的文件编号
+  *pro_offset = version_->pro_offset_;  // 获取当前生产者的偏移量
+
+  // 如果传入的指针 logic_id 不为空，设置 logic_id。
   if (logic_id) {
-    *logic_id = version_->logic_id_;
-  }
-  if (term) {
-    *term = version_->term_;
+    *logic_id = version_->logic_id_;  // 获取当前生产者的逻辑ID
   }
 
+  // 如果传入的指针 term 不为空，设置 term。
+  if (term) {
+    *term = version_->term_;  // 获取当前生产者的 term
+  }
+
+  // 返回 OK 状态，表示获取生产者状态成功。
   return Status::OK();
 }
 
@@ -288,47 +297,58 @@ Status Binlog::EmitPhysicalRecord(RecordType t, const char* ptr, size_t n, int* 
 }
 
 Status Binlog::Produce(const pstd::Slice& item, int* temp_pro_offset) {
-  Status s;
-  const char* ptr = item.data();
-  size_t left = item.size();
-  bool begin = true;
+  Status s;                       // 用于存储操作状态
+  const char* ptr = item.data();  // 获取数据项的指针
+  size_t left = item.size();      // 获取数据项的剩余字节数
+  bool begin = true;              // 标记是否是数据块的开始
 
-  *temp_pro_offset = static_cast<int>(version_->pro_offset_);
+  *temp_pro_offset = static_cast<int>(version_->pro_offset_);  // 设置生产偏移量
   do {
-    const int leftover = static_cast<int>(kBlockSize) - block_offset_;
-    assert(leftover >= 0);
+    const int leftover = static_cast<int>(kBlockSize) - block_offset_;  // 当前块中剩余的可用空间
+    assert(leftover >= 0);                                              // 确保剩余空间不会小于0
+
+    // 如果当前剩余空间不足以容纳头部，先填充剩余部分并提交
     if (static_cast<size_t>(leftover) < kHeaderSize) {
       if (leftover > 0) {
+        // 填充剩余空间，使用空字节 (\x00)
         s = queue_->Append(pstd::Slice("\x00\x00\x00\x00\x00\x00\x00", leftover));
         if (!s.ok()) {
-          return s;
+          return s;  // 如果操作失败，返回状态
         }
-        *temp_pro_offset += leftover;
+        *temp_pro_offset += leftover;  // 更新生产偏移量
       }
-      block_offset_ = 0;
+      block_offset_ = 0;  // 重置块偏移量
     }
 
-    const size_t avail = kBlockSize - block_offset_ - kHeaderSize;
-    const size_t fragment_length = (left < avail) ? left : avail;
-    RecordType type;
-    const bool end = (left == fragment_length);
+    const size_t avail = kBlockSize - block_offset_ - kHeaderSize;  // 当前块可用空间
+    const size_t fragment_length = (left < avail) ? left : avail;  // 当前片段的长度，取剩余数据长度或可用空间的最小值
+    RecordType type;                                               // 记录类型
+    const bool end = (left == fragment_length);  // 判断当前片段是否是最后一个片段
+
+    // 根据当前片段的位置设置记录类型
     if (begin && end) {
-      type = kFullType;
+      type = kFullType;  // 如果是第一个也是最后一个片段，记录类型为完整类型
     } else if (begin) {
-      type = kFirstType;
+      type = kFirstType;  // 如果是第一个片段，记录类型为开始类型
     } else if (end) {
-      type = kLastType;
+      type = kLastType;  // 如果是最后一个片段，记录类型为结束类型
     } else {
-      type = kMiddleType;
+      type = kMiddleType;  // 否则是中间类型
     }
 
+    // 发出物理记录
     s = EmitPhysicalRecord(type, ptr, fragment_length, temp_pro_offset);
+    if (!s.ok()) {
+      return s;  // 如果操作失败，返回状态
+    }
+
+    // 更新数据指针和剩余数据长度
     ptr += fragment_length;
     left -= fragment_length;
-    begin = false;
-  } while (s.ok() && left > 0);
+    begin = false;  // 之后不再是开始片段
+  } while (s.ok() && left > 0);  // 如果还有剩余数据且操作成功，继续处理
 
-  return s;
+  return s;  // 返回操作状态
 }
 
 Status Binlog::AppendPadding(pstd::WritableFile* file, uint64_t* len) {

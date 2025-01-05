@@ -225,9 +225,12 @@ std::shared_ptr<Cmd> PikaClientConn::DoCmd(const PikaCmdArgsType& argv, const st
 
   // 更新命令处理时间和统计信息
   time_stat_->process_done_ts_ = pstd::NowMicros();
+  LOG(INFO) << "DOCMD process_done_ts_: " << time_stat_->process_done_ts_ / 1000;
+  LOG(INFO) << "DOCMD process_time: " << time_stat_->process_time() / 1000;
   auto cmdstat_map = g_pika_cmd_table_manager->GetCommandStatMap();
   (*cmdstat_map)[opt].cmd_count.fetch_add(1);
   (*cmdstat_map)[opt].cmd_time_consuming.fetch_add(time_stat_->total_time());
+  LOG(INFO) << "DOCMD: " << time_stat_->total_time() / 1000;
 
   // 如果配置了慢查询日志，处理慢查询
   if (g_pika_conf->slowlog_slower_than() >= 0) {
@@ -238,31 +241,41 @@ std::shared_ptr<Cmd> PikaClientConn::DoCmd(const PikaCmdArgsType& argv, const st
 }
 
 void PikaClientConn::ProcessSlowlog(const PikaCmdArgsType& argv, uint64_t do_duration) {
+  // 检查当前命令的执行时间是否超过慢查询阈值
   if (time_stat_->total_time() > g_pika_conf->slowlog_slower_than()) {
+    // 将慢查询命令信息记录到慢查询日志
     g_pika_server->SlowlogPushEntry(argv, time_stat_->start_ts() / 1000000, time_stat_->total_time());
+
+    // 如果配置要求将慢查询写入错误日志
     if (g_pika_conf->slowlog_write_errorlog()) {
-      bool trim = false;
-      std::string slow_log;
-      uint32_t cmd_size = 0;
+      bool trim = false;      // 标记是否需要截断日志
+      std::string slow_log;   // 用于存储命令的字符串形式
+      uint32_t cmd_size = 0;  // 用于存储命令的总字节数（包括空格和参数）
+
+      // 遍历命令参数并构建日志
       for (const auto& i : argv) {
-        cmd_size += 1 + i.size();  // blank space and argument length
+        cmd_size += 1 + i.size();  // 计算命令参数的长度（包括空格）
+
         if (!trim) {
-          slow_log.append(" ");
-          slow_log.append(pstd::ToRead(i));
+          slow_log.append(" ");              // 添加空格
+          slow_log.append(pstd::ToRead(i));  // 将参数转为可读格式并追加到慢查询日志中
+
+          // 如果命令参数长度过长，截断并标记
           if (slow_log.size() >= 1000) {
-            trim = true;
-            slow_log.resize(1000);
-            slow_log.append("...\"");
+            trim = true;               // 标记为需要截断
+            slow_log.resize(1000);     // 截断日志
+            slow_log.append("...\"");  // 添加省略号表示截断
           }
         }
       }
+      // 将慢查询信息记录到错误日志中
       LOG(ERROR) << "ip_port: " << ip_port() << ", db: " << current_db_ << ", command:" << slow_log
                  << ", command_size: " << cmd_size - 1 << ", arguments: " << argv.size()
-                 << ", total_time(ms): " << time_stat_->total_time() / 1000
-                 << ", before_queue_time(ms): " << time_stat_->before_queue_time() / 1000
-                 << ", queue_time(ms): " << time_stat_->queue_time() / 1000
-                 << ", process_time(ms): " << time_stat_->process_time() / 1000
-                 << ", cmd_time(ms): " << do_duration / 1000;
+                 << ", total_time(ms): " << time_stat_->total_time() / 1000                // 总耗时（毫秒）
+                 << ", before_queue_time(ms): " << time_stat_->before_queue_time() / 1000  // 排队前耗时（毫秒）
+                 << ", queue_time(ms): " << time_stat_->queue_time() / 1000                // 排队耗时（毫秒）
+                 << ", process_time(ms): " << time_stat_->process_time() / 1000            // 处理时间（毫秒）
+                 << ", cmd_time(ms): " << do_duration / 1000;  // 当前命令执行时间（毫秒）
     }
   }
 }
@@ -288,42 +301,55 @@ bool PikaClientConn::IsInterceptedByRTC(std::string& opt) {
   }
   return false;
 }
-
 void PikaClientConn::ProcessRedisCmds(const std::vector<net::RedisCmdArgsType>& argvs, bool async,
                                       std::string* response) {
+  // 重置时间统计信息
   time_stat_->Reset();
+
   if (async) {
+    // 如果是异步模式，创建后台任务参数
     auto arg = new BgTaskArg();
-    arg->cache_miss_in_rtc_ = false;
-    arg->redis_cmds = argvs;
-    time_stat_->enqueue_ts_ = time_stat_->before_queue_ts_ = pstd::NowMicros();
+    arg->cache_miss_in_rtc_ = false;  // 初始化 RTC 缓存未命中的标志
+    arg->redis_cmds = argvs;          // 保存 Redis 命令
+    time_stat_->enqueue_ts_ = time_stat_->before_queue_ts_ = pstd::NowMicros();  // 记录入队时间
+
+    // 保存当前连接的智能指针到任务参数
     arg->conn_ptr = std::dynamic_pointer_cast<PikaClientConn>(shared_from_this());
+
     /**
-     * If using the pipeline method to transmit batch commands to Pika, it is unable to
-     * correctly distinguish between fast and slow commands.
-     * However, if using the pipeline method for Codis, it can correctly distinguish between
-     * fast and slow commands, but it cannot guarantee sequential execution.
+     * 关于批量命令的处理：
+     * - 如果使用 pipeline 方法将批量命令发送到 Pika，则无法正确区分快慢命令。
+     * - 如果是 Codis 的 pipeline 方法，可以正确区分快慢命令，但不能保证按顺序执行。
      */
+
+    // 获取命令的第一个参数（即操作类型，例如 GET、SET）
     std::string opt = argvs[0][0];
-    pstd::StringToLower(opt);
+    pstd::StringToLower(opt);  // 转换为小写以便统一处理
+
+    // 判断命令是否为慢命令或管理员命令
     bool is_slow_cmd = g_pika_conf->is_slow_cmd(opt);
     bool is_admin_cmd = g_pika_conf->is_admin_cmd(opt);
 
-    // we don't intercept pipeline batch (argvs.size() > 1)
+    // 如果启用了 RTC 缓存读取功能，并且是单命令且符合拦截规则
     if (g_pika_conf->rtc_cache_read_enabled() && argvs.size() == 1 && IsInterceptedByRTC(opt) &&
         PIKA_CACHE_NONE != g_pika_conf->cache_mode() && !IsInTxn()) {
-      // read in cache
+      // 尝试从缓存中读取命令结果
       if (ReadCmdInCache(argvs[0], opt)) {
+        // 如果命中缓存，释放任务参数并返回
         delete arg;
         return;
       }
+      // 如果未命中缓存，记录排队前的时间戳
       arg->cache_miss_in_rtc_ = true;
       time_stat_->before_queue_ts_ = pstd::NowMicros();
     }
 
+    // 将任务提交到后台线程池进行调度
     g_pika_server->ScheduleClientPool(&DoBackgroundTask, arg, is_slow_cmd, is_admin_cmd);
     return;
   }
+
+  // 如果是同步模式，直接批量执行 Redis 命令
   BatchExecRedisCmd(argvs, false);
 }
 
@@ -346,13 +372,25 @@ void PikaClientConn::DoBackgroundTask(void* arg) {
 }
 
 void PikaClientConn::BatchExecRedisCmd(const std::vector<net::RedisCmdArgsType>& argvs, bool cache_miss_in_rtc) {
+  // 设置响应的数量，用于标记需要处理的 Redis 命令总数
   resp_num.store(static_cast<int32_t>(argvs.size()));
+
+  // 遍历所有的 Redis 命令参数
   for (const auto& argv : argvs) {
+    // 为每个命令创建一个用于存储响应结果的共享指针
     std::shared_ptr<std::string> resp_ptr = std::make_shared<std::string>();
+
+    // 将响应指针加入响应数组，便于后续统一处理
     resp_array.push_back(resp_ptr);
+
+    // 执行 Redis 命令
     ExecRedisCmd(argv, resp_ptr, cache_miss_in_rtc);
   }
+
+  // 设置处理完成的时间戳，表示命令执行结束的时刻
   time_stat_->process_done_ts_ = pstd::NowMicros();
+
+  // 尝试将响应写回给客户端
   TryWriteResp();
 }
 

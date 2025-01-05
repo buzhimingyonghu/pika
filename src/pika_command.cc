@@ -903,28 +903,42 @@ void Cmd::ProcessCommand(const HintKeys& hint_keys) {
 }
 
 void Cmd::InternalProcessCommand(const HintKeys& hint_keys) {
+  // 使用 MultiRecordLock 对数据库中的锁进行管理，确保线程安全
   pstd::lock::MultiRecordLock record_lock(db_->LockMgr());
+
+  // 如果是写命令，锁定当前的 key，防止其他线程并发修改
   if (is_write()) {
     record_lock.Lock(current_key());
   }
+
   uint64_t start_us = 0;
+  // 如果配置了慢日志（slowlog），则记录命令开始的时间
   if (g_pika_conf->slowlog_slower_than() >= 0) {
-    start_us = pstd::NowMicros();
+    start_us = pstd::NowMicros();  // 获取当前时间（微秒）
   }
 
+  // 如果命令没有被挂起，则尝试获得数据库的共享锁
   if (!IsSuspend()) {
     db_->DBLockShared();
   }
 
+  // 执行实际的命令逻辑
   DoCommand(hint_keys);
+
+  // 记录命令执行时间，如果配置了慢日志，检查是否超时
   if (g_pika_conf->slowlog_slower_than() >= 0) {
-    do_duration_ += pstd::NowMicros() - start_us;
+    do_duration_ += pstd::NowMicros() - start_us;  // 累计执行时长
   }
+
+  // 处理命令对应的 binlog
   DoBinlog();
 
+  // 如果命令没有被挂起，释放共享锁
   if (!IsSuspend()) {
     db_->DBUnlockShared();
   }
+
+  // 如果是写命令，解锁当前的 key
   if (is_write()) {
     record_lock.Unlock(current_key());
   }

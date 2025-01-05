@@ -143,7 +143,7 @@ void SlaveofCmd::DoInitial() {
 }
 
 void SlaveofCmd::Do() {
-  // Check if we are already connected to the specified master
+  // 检查当前实例是否已经是指定的主服务器的从服务器
   if ((master_ip_ == "127.0.0.1" || g_pika_server->master_ip() == master_ip_) &&
       g_pika_server->master_port() == master_port_) {
     res_.SetRes(CmdRes::kOk);
@@ -151,7 +151,7 @@ void SlaveofCmd::Do() {
   }
 
   g_pika_server->RemoveMaster();
-
+  // 如果命令是取消从服务器身份
   if (is_none_) {
     res_.SetRes(CmdRes::kOk);
     g_pika_conf->SetSlaveof(std::string());
@@ -164,6 +164,7 @@ void SlaveofCmd::Do() {
 
   bool sm_ret = g_pika_server->SetMaster(master_ip_, static_cast<int32_t>(master_port_));
   LOG(WARNING) << "finish g_pika_server->master_ip: " << g_pika_server->master_ip();
+  // 处理设置成功的情况
   if (sm_ret) {
     res_.SetRes(CmdRes::kOk);
     g_pika_server->ClearCacheDbAsync(db_);

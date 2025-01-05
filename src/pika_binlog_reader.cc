@@ -34,51 +34,73 @@ bool PikaBinlogReader::ReadToTheEnd() {
   std::shared_lock l(rwlock_);
   return (pro_num == cur_filenum_ && pro_offset == cur_offset_);
 }
-
 int PikaBinlogReader::Seek(const std::shared_ptr<Binlog>& logger, uint32_t filenum, uint64_t offset) {
+  // 根据日志文件名和文件号构造目标文件的名称
   std::string confile = NewFileName(logger->filename(), filenum);
+
+  // 检查文件是否存在
   if (!pstd::FileExists(confile)) {
-    LOG(WARNING) << confile << " not exits";
+    LOG(WARNING) << confile << " not exists";  // 如果文件不存在，打印警告并返回错误码
     return -1;
   }
+
+  // 创建一个 SequentialFile 对象用于顺序读取
   std::unique_ptr<pstd::SequentialFile> readfile;
+  // 如果创建失败，打印警告并返回错误码
   if (!pstd::NewSequentialFile(confile, readfile).ok()) {
-    LOG(WARNING) << "New swquential " << confile << " failed";
+    LOG(WARNING) << "New sequential " << confile << " failed";  // 创建文件失败
     return -1;
   }
+
+  // 如果队列已存在，则先重置队列
   if (queue_) {
     queue_.reset();
   }
+
+  // 将新文件指针赋给队列，并记录当前的 logger
   queue_ = std::move(readfile);
   logger_ = logger;
 
+  // 使用写锁保护当前文件号、当前偏移量和上次记录的偏移量
   std::lock_guard l(rwlock_);
-  cur_filenum_ = filenum;
-  cur_offset_ = offset;
-  last_record_offset_ = cur_filenum_ % kBlockSize;
+  cur_filenum_ = filenum;                           // 更新当前文件号
+  cur_offset_ = offset;                             // 更新当前偏移量
+  last_record_offset_ = cur_filenum_ % kBlockSize;  // 计算上次记录的偏移量，按块大小取模
 
   pstd::Status s;
+  // 计算要跳过的起始块位置，按块大小对齐
   uint64_t start_block = (cur_offset_ / kBlockSize) * kBlockSize;
-  s = queue_->Skip((cur_offset_ / kBlockSize) * kBlockSize);
-  uint64_t block_offset = cur_offset_ % kBlockSize;
+
+  // 跳过到文件中的起始块
+  s = queue_->Skip(start_block);
+  uint64_t block_offset = cur_offset_ % kBlockSize;  // 计算当前偏移量在当前块中的位置
   uint64_t ret = 0;
   uint64_t res = 0;
   bool is_error = false;
 
+  // 读取日志直到偏移量匹配
   while (true) {
+    // 如果已经读取到目标偏移量位置，退出循环
     if (res >= block_offset) {
-      cur_offset_ = start_block + res;
+      cur_offset_ = start_block + res;  // 更新当前偏移量
       break;
     }
+
     ret = 0;
+    // 获取下一条记录，返回值保存在 ret 中
     is_error = GetNext(&ret);
+
+    // 如果获取下一条记录失败，返回错误
     if (is_error) {
       return -1;
     }
-    res += ret;
+
+    res += ret;  // 更新已经读取的字节数
   }
+
+  // 更新最后记录的偏移量
   last_record_offset_ = cur_offset_ % kBlockSize;
-  return 0;
+  return 0;  // 成功返回 0
 }
 
 bool PikaBinlogReader::GetNext(uint64_t* size) {
@@ -131,51 +153,63 @@ bool PikaBinlogReader::GetNext(uint64_t* size) {
   *size = offset;
   return is_error;
 }
-
+// ReadPhysicalRecord 方法用于从队列中读取一个物理记录（包括头部和数据）
 unsigned int PikaBinlogReader::ReadPhysicalRecord(pstd::Slice* result, uint32_t* filenum, uint64_t* offset) {
   pstd::Status s;
+
+  // 如果当前记录偏移量到达块大小，跳过当前块剩余部分，重置偏移量
   if (kBlockSize - last_record_offset_ <= kHeaderSize) {
-    queue_->Skip(kBlockSize - last_record_offset_);
-    std::lock_guard l(rwlock_);
-    cur_offset_ += (kBlockSize - last_record_offset_);
-    last_record_offset_ = 0;
-  }
-  buffer_.clear();
-  s = queue_->Read(kHeaderSize, &buffer_, backing_store_.get());
-  if (s.IsEndFile()) {
-    return kEof;
-  } else if (!s.ok()) {
-    return kBadRecord;
+    queue_->Skip(kBlockSize - last_record_offset_);     // 跳过当前块剩余的部分
+    std::lock_guard l(rwlock_);                         // 使用锁确保线程安全
+    cur_offset_ += (kBlockSize - last_record_offset_);  // 更新当前偏移量
+    last_record_offset_ = 0;                            // 重置当前记录偏移量
   }
 
-  const char* header = buffer_.data();
+  // 清空缓冲区并读取记录头部
+  buffer_.clear();
+  s = queue_->Read(kHeaderSize, &buffer_, backing_store_.get());  // 读取头部大小的数据
+  if (s.IsEndFile()) {
+    return kEof;  // 如果到达文件末尾，返回结束标志
+  } else if (!s.ok()) {
+    return kBadRecord;  // 如果读取失败，返回坏记录标志
+  }
+
+  // 解析头部内容
+  const char* header = buffer_.data();  // 获取头部数据的指针
   const uint32_t a = static_cast<uint32_t>(header[0]) & 0xff;
   const uint32_t b = static_cast<uint32_t>(header[1]) & 0xff;
   const uint32_t c = static_cast<uint32_t>(header[2]) & 0xff;
-  const unsigned int type = header[7];
-  const uint32_t length = a | (b << 8) | (c << 16);
+  const unsigned int type = header[7];               // 获取记录类型（头部最后一个字节）
+  const uint32_t length = a | (b << 8) | (c << 16);  // 解析记录长度（3字节）
 
+  // 如果记录长度大于一个块的大小（减去头部），返回坏记录标志
   if (length > (kBlockSize - kHeaderSize)) {
     return kBadRecord;
   }
 
+  // 如果记录类型是零类型或记录长度为零，则返回旧记录标志
   if (type == kZeroType || length == 0) {
     buffer_.clear();
     return kOldRecord;
   }
 
+  // 读取记录数据（头部之后的部分）
   buffer_.clear();
-  s = queue_->Read(length, &buffer_, backing_store_.get());
-  *result = pstd::Slice(buffer_.data(), buffer_.size());
-  last_record_offset_ += kHeaderSize + length;
+  s = queue_->Read(length, &buffer_, backing_store_.get());  // 读取数据部分
+  *result = pstd::Slice(buffer_.data(), buffer_.size());     // 将读取的数据存入 result
+  last_record_offset_ += kHeaderSize + length;               // 更新当前记录的偏移量
+
+  // 如果读取成功，更新文件编号和偏移量，并返回记录类型
   if (s.ok()) {
-    std::lock_guard l(rwlock_);
-    *filenum = cur_filenum_;
-    cur_offset_ += (kHeaderSize + length);
-    *offset = cur_offset_;
+    std::lock_guard l(rwlock_);             // 使用锁确保线程安全
+    *filenum = cur_filenum_;                // 设置文件编号
+    cur_offset_ += (kHeaderSize + length);  // 更新当前偏移量
+    *offset = cur_offset_;                  // 返回当前偏移量
   }
-  return type;
+
+  return type;  // 返回记录类型
 }
+
 // Consume 一条 binlog 消息
 // 根据不同的记录类型，处理数据并返回相应的状态
 Status PikaBinlogReader::Consume(std::string* scratch, uint32_t* filenum, uint64_t* offset) {

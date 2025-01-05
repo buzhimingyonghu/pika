@@ -164,7 +164,7 @@ Status SyncMasterDB::ActivateSlaveDbSync(const std::string& ip, int port) {
 Status SyncMasterDB::ReadBinlogFileToWq(const std::shared_ptr<SlaveNode>& slave_ptr) {
   //
 
-  // 获取当前从节点同步窗口中剩余的未同步数据量
+  // 计算同步窗口中剩余可用空间大小
   int cnt = slave_ptr->sync_win.Remaining();
 
   // 获取当前从节点的 binlog 阅读器
@@ -178,7 +178,7 @@ Status SyncMasterDB::ReadBinlogFileToWq(const std::shared_ptr<SlaveNode>& slave_
   // 用于存储本次读取的写任务
   std::vector<WriteTask> tasks;
 
-  // 遍历同步窗口中剩余的 binlog 数据
+
   for (int i = 0; i < cnt; ++i) {
     std::string msg;   // 用于存储从 binlog 读取的消息
     uint32_t filenum;  // 用于存储 binlog 文件编号
@@ -806,16 +806,13 @@ int PikaReplicaManager::ConsumeWriteQueue() {
   int counter = 0;
 
   {
-    // 使用锁保护对写队列的访问，确保多线程环境下的线程安全
     std::lock_guard l(write_queue_mu_);
 
     // 遍历写队列（按 IP:port 分组）
     for (auto& iter : write_queues_) {
       const std::string& ip_port = iter.first;  // 当前的 IP:port 键
-      std::unordered_map<std::string, std::queue<WriteTask>>& p_map =
-          iter.second;  // 获取该 IP:port 对应的数据库队列映射
+      std::unordered_map<std::string, std::queue<WriteTask>>& p_map = iter.second;
 
-      // 遍历数据库队列（每个数据库都有一个队列）
       for (auto& db_queue : p_map) {
         std::queue<WriteTask>& queue = db_queue.second;  // 获取当前数据库的写任务队列
 

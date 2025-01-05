@@ -15,27 +15,35 @@
 
 // TODO: stat time costing in write out data to connfd
 struct TimeStat {
-  TimeStat() = default;
+  TimeStat() = default;  // 默认构造函数
+
+  // 重置所有时间戳为 0
   void Reset() {
-    enqueue_ts_ = dequeue_ts_ = 0;
-    process_done_ts_ = 0;
-    before_queue_ts_ = 0;
+    enqueue_ts_ = dequeue_ts_ = 0;  // 初始化入队和出队时间戳
+    process_done_ts_ = 0;           // 初始化处理完成时间戳
+    before_queue_ts_ = 0;           // 初始化排队前时间戳
   }
 
+  // 获取入队时间戳
   uint64_t start_ts() const { return enqueue_ts_; }
 
+  // 计算从入队到处理完成的总耗时
   uint64_t total_time() const { return process_done_ts_ > enqueue_ts_ ? process_done_ts_ - enqueue_ts_ : 0; }
 
+  // 计算从入队到出队的排队耗时
   uint64_t queue_time() const { return dequeue_ts_ > enqueue_ts_ ? dequeue_ts_ - enqueue_ts_ : 0; }
 
+  // 计算从出队到处理完成的处理耗时
   uint64_t process_time() const { return process_done_ts_ > dequeue_ts_ ? process_done_ts_ - dequeue_ts_ : 0; }
 
+  // 计算排队前的时间（排队前的耗时）
   uint64_t before_queue_time() const { return process_done_ts_ > dequeue_ts_ ? before_queue_ts_ - enqueue_ts_ : 0; }
 
-  uint64_t enqueue_ts_;
-  uint64_t dequeue_ts_;
-  uint64_t before_queue_ts_;
-  uint64_t process_done_ts_;
+  // 成员变量：时间戳
+  uint64_t enqueue_ts_;       // 入队时间戳
+  uint64_t dequeue_ts_;       // 出队时间戳
+  uint64_t before_queue_ts_;  // 排队前的时间戳
+  uint64_t process_done_ts_;  // 处理完成的时间戳
 };
 
 class PikaClientConn : public net::RedisConn {

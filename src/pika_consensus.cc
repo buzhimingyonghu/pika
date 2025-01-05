@@ -24,9 +24,7 @@ extern std::unique_ptr<PikaCmdTableManager> g_pika_cmd_table_manager;
 // 构造函数，初始化上下文对象并设置文件路径
 Context::Context(std::string path) : path_(std::move(path)) {}
 
-// 将当前上下文的状态持久化到文件中
 Status Context::StableSave() {
-  // 获取保存数据的指针
   char* p = save_->GetData();
 
   // 将 applied_index_ 中的字段逐一写入文件
@@ -38,42 +36,36 @@ Status Context::StableSave() {
   p += 4;
   memcpy(p, &(applied_index_.l_offset.index), sizeof(uint64_t));  // 保存日志索引
 
-  return Status::OK();  // 保存成功，返回 OK 状态
+  return Status::OK();
 }
 
-// 初始化上下文，如果文件不存在则创建并保存，如果文件存在则加载
 Status Context::Init() {
-  // 检查文件是否存在
   if (!pstd::FileExists(path_)) {
     // 如果文件不存在，则创建文件并进行初始化保存
     Status s = pstd::NewRWFile(path_, save_);
     if (!s.ok()) {
-      LOG(FATAL) << "Context new file failed " << s.ToString();  // 文件创建失败，输出错误并终止程序
+      LOG(FATAL) << "Context new file failed " << s.ToString();
     }
-    StableSave();  // 保存当前状态
+    StableSave();
   } else {
     // 如果文件存在，则加载该文件
     std::unique_ptr<pstd::RWFile> tmp_file;
     Status s = pstd::NewRWFile(path_, tmp_file);
     save_.reset(tmp_file.release());
     if (!s.ok()) {
-      LOG(FATAL) << "Context new file failed " << s.ToString();  // 文件创建失败，输出错误并终止程序
+      LOG(FATAL) << "Context new file failed " << s.ToString();
     }
   }
 
   // 从文件中读取数据并加载到应用索引
   if (save_->GetData()) {
-    memcpy(reinterpret_cast<char*>(&(applied_index_.b_offset.filenum)), save_->GetData(),
-           sizeof(uint32_t));  // 读取文件号
-    memcpy(reinterpret_cast<char*>(&(applied_index_.b_offset.offset)), save_->GetData() + 4,
-           sizeof(uint64_t));  // 读取偏移量
-    memcpy(reinterpret_cast<char*>(&(applied_index_.l_offset.term)), save_->GetData() + 12,
-           sizeof(uint32_t));  // 读取日志任期
-    memcpy(reinterpret_cast<char*>(&(applied_index_.l_offset.index)), save_->GetData() + 16,
-           sizeof(uint64_t));  // 读取日志索引
-    return Status::OK();       // 加载成功，返回 OK 状态
+    memcpy(reinterpret_cast<char*>(&(applied_index_.b_offset.filenum)), save_->GetData(), sizeof(uint32_t));
+    memcpy(reinterpret_cast<char*>(&(applied_index_.b_offset.offset)), save_->GetData() + 4, sizeof(uint64_t));
+    memcpy(reinterpret_cast<char*>(&(applied_index_.l_offset.term)), save_->GetData() + 12, sizeof(uint32_t));
+    memcpy(reinterpret_cast<char*>(&(applied_index_.l_offset.index)), save_->GetData() + 16, sizeof(uint64_t));
+    return Status::OK();
   } else {
-    return Status::Corruption("Context init error");  // 文件损坏，返回错误状态
+    return Status::Corruption("Context init error");
   }
 }
 
@@ -88,47 +80,46 @@ void Context::UpdateAppliedIndex(const LogOffset& offset) {
   // 如果新的偏移量大于当前的已应用索引，则更新已应用索引并保存
   if (cur_offset > applied_index_) {
     applied_index_ = cur_offset;
-    StableSave();  // 保存更新后的状态
+    StableSave();
   }
 }
 
 // 重置上下文的应用索引
 void Context::Reset(const LogOffset& offset) {
-  std::lock_guard l(rwlock_);  // 使用互斥锁保护共享资源
+  std::lock_guard l(rwlock_);
 
   applied_index_ = offset;  // 重置已应用的索引
   applied_win_.Reset();     // 重置应用窗口
   StableSave();             // 保存重置后的状态
 }
+
 /* SyncProgress */
 
-// 根据 IP 和端口生成唯一的从节点标识
 std::string MakeSlaveKey(const std::string& ip, int port) { return ip + ":" + std::to_string(port); }
 
-// 获取指定 IP 和端口的从节点，如果不存在则返回 nullptr
 std::shared_ptr<SlaveNode> SyncProgress::GetSlaveNode(const std::string& ip, int port) {
   std::string slave_key = MakeSlaveKey(ip, port);  // 生成从节点标识
   std::shared_lock l(rwlock_);                     // 共享锁，允许多个线程读取
   if (slaves_.find(slave_key) == slaves_.end()) {  // 如果从节点不存在
     return nullptr;
   }
-  return slaves_[slave_key];  // 返回从节点指针
+  return slaves_[slave_key];
 }
 
 // 获取所有的从节点
 std::unordered_map<std::string, std::shared_ptr<SlaveNode>> SyncProgress::GetAllSlaveNodes() {
-  std::shared_lock l(rwlock_);  // 共享锁，允许多个线程读取
-  return slaves_;               // 返回所有从节点的集合
+  std::shared_lock l(rwlock_);
+  return slaves_;
 }
 
 // 添加一个新的从节点，如果从节点已经存在，则更新其 session_id
 Status SyncProgress::AddSlaveNode(const std::string& ip, int port, const std::string& db_name, int session_id) {
-  std::string slave_key = MakeSlaveKey(ip, port);                 // 生成从节点标识
+  std::string slave_key = MakeSlaveKey(ip, port);
   std::shared_ptr<SlaveNode> exist_ptr = GetSlaveNode(ip, port);  // 检查从节点是否已经存在
   if (exist_ptr) {                                                // 如果从节点已存在
     LOG(WARNING) << "SlaveNode " << exist_ptr->ToString() << " already exist, set new session " << session_id;
     exist_ptr->SetSessionId(session_id);  // 更新 session_id
-    return Status::OK();                  // 返回成功状态
+    return Status::OK();
   }
 
   // 如果从节点不存在，创建一个新的从节点
@@ -137,47 +128,43 @@ Status SyncProgress::AddSlaveNode(const std::string& ip, int port, const std::st
   slave_ptr->SetLastRecvTime(pstd::NowMicros());  // 设置最后接收时间
 
   {
-    std::lock_guard l(rwlock_);             // 独占锁，保证对 slaves_ 和 match_index_ 的写操作安全
+    std::lock_guard l(rwlock_);
     slaves_[slave_key] = slave_ptr;         // 将新的从节点添加到 slaves_ 中
     match_index_[slave_key] = LogOffset();  // 在 match_index_ 中为该从节点初始化日志偏移
   }
 
-  return Status::OK();  // 返回成功状态
+  return Status::OK();
 }
 
-// 移除指定 IP 和端口的从节点
 Status SyncProgress::RemoveSlaveNode(const std::string& ip, int port) {
   std::string slave_key = MakeSlaveKey(ip, port);  // 生成从节点标识
   {
-    std::lock_guard l(rwlock_);     // 独占锁，保证对 slaves_ 和 match_index_ 的写操作安全
+    std::lock_guard l(rwlock_);
     slaves_.erase(slave_key);       // 从 slaves_ 中移除该从节点
     match_index_.erase(slave_key);  // 从 match_index_ 中移除该从节点
   }
-  return Status::OK();  // 返回成功状态
+  return Status::OK();
 }
 
 // 更新指定从节点的日志偏移信息
 Status SyncProgress::Update(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
                             LogOffset* committed_index) {
-  std::shared_ptr<SlaveNode> slave_ptr = GetSlaveNode(ip, port);            // 获取指定的从节点
-  if (!slave_ptr) {                                                         // 如果从节点不存在
-    return Status::NotFound("ip " + ip + " port " + std::to_string(port));  // 返回错误状态
+  std::shared_ptr<SlaveNode> slave_ptr = GetSlaveNode(ip, port);
+  if (!slave_ptr) {  // 如果从节点不存在
+    return Status::NotFound("ip " + ip + " port " + std::to_string(port));
   }
 
   LogOffset acked_offset;
   {
-    // 使用独占锁保护从节点的状态更新
     std::lock_guard l(slave_ptr->slave_mu);
     Status s = slave_ptr->Update(start, end, &acked_offset);  // 更新从节点的日志偏移
     if (!s.ok()) {
-      return s;  // 如果更新失败，返回错误状态
+      return s;
     }
-
     // 更新该从节点在 match_index_ 中的日志偏移
     match_index_[ip + std::to_string(port)] = acked_offset;
   }
-
-  return Status::OK();  // 返回成功状态
+  return Status::OK();
 }
 
 int SyncProgress::SlaveSize() {
@@ -186,20 +173,15 @@ int SyncProgress::SlaveSize() {
 }
 /* MemLog */
 
-// 默认构造函数
 MemLog::MemLog() = default;
 
-// 获取当前日志的数量
-int MemLog::Size() {
-  return static_cast<int>(logs_.size());  // 返回日志条目数
-}
+int MemLog::Size() { return static_cast<int>(logs_.size()); }
 
-// 保留日志范围 [mem_log.begin(), offset]，删除之后的日志
 Status MemLog::TruncateTo(const LogOffset& offset) {
-  std::lock_guard l_logs(logs_mu_);                   // 使用锁保证对日志的独占访问
+  std::lock_guard l_logs(logs_mu_);
   int index = InternalFindLogByBinlogOffset(offset);  // 查找指定 offset 对应的日志位置
   if (index < 0) {
-    return Status::Corruption("Cant find correct index");  // 如果没有找到对应日志，返回腐败错误
+    return Status::Corruption("Cant find correct index");
   }
   last_offset_ = logs_[index].offset;                   // 更新最后的偏移
   logs_.erase(logs_.begin() + index + 1, logs_.end());  // 删除从 index+1 到末尾的日志
@@ -247,7 +229,7 @@ int MemLog::InternalFindLogByBinlogOffset(const LogOffset& offset) {
       return static_cast<int32_t>(i);
     }
   }
-  return -1;  // 没有找到对应的日志，返回 -1
+  return -1;
 }
 
 /* ConsensusCoordinator */
@@ -262,7 +244,7 @@ ConsensusCoordinator::ConsensusCoordinator(const std::string& db_name) : db_name
 }
 
 ConsensusCoordinator::~ConsensusCoordinator() = default;
-// 因为该函数在构造函数中调用，所以在执行时不持有任何锁
+
 void ConsensusCoordinator::Init() {
   // 加载已提交的索引和应用的索引
   context_->Init();                             // 初始化上下文，恢复保存的索引
@@ -271,7 +253,6 @@ void ConsensusCoordinator::Init() {
   // 加载当前任期（term）
   term_ = stable_logger_->Logger()->term();  // 获取稳定日志中的当前任期
 
-  // 输出日志信息，显示已恢复的应用索引和当前任期
   LOG(INFO) << DBInfo(db_name_).ToString() << "Restore applied index " << context_->applied_index_.ToString()
             << " current term " << term_;
 
