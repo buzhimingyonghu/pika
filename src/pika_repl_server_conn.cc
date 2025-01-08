@@ -28,6 +28,7 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
   InnerMessage::InnerRequest::MetaSync meta_sync_request = req->meta_sync();
   const InnerMessage::Node& node = meta_sync_request.node();
   std::string masterauth = meta_sync_request.has_auth() ? meta_sync_request.auth() : "";
+  bool is_consistency = meta_sync_request.is_consistency();
 
   InnerMessage::InnerResponse response;
   response.set_type(InnerMessage::kMetaSync);
@@ -38,12 +39,26 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
     LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port();
     std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
     bool success = g_pika_server->TryAddSlave(node.ip(), node.port(), conn->fd(), db_structs);
+
+    g_pika_server->SetIsConsistency(is_consistency);
+    auto master_dbs=g_pika_rm->GetSyncMasterDBs();
+    for(auto &db:master_dbs){
+      db.second->SetConsistency(is_consistency);
+    }
+    
     const std::string ip_port = pstd::IpPortString(node.ip(), node.port());
     g_pika_rm->ReplServerUpdateClientConnMap(ip_port, conn->fd());
     if (!success) {
       response.set_code(InnerMessage::kOther);
       response.set_reply("Slave AlreadyExist");
     } else {
+      if(g_pika_server->IsConsistency()){
+        if(!g_pika_server->role()&PIKA_ROLE_MASTER){
+          for(auto &db:master_dbs){
+            db.second->ProcessCoordination();
+          }
+        }
+      }
       g_pika_server->BecomeMaster();
       response.set_code(InnerMessage::kOk);
       InnerMessage::InnerResponse_MetaSync* meta_sync = response.mutable_meta_sync();

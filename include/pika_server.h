@@ -163,7 +163,7 @@ class PikaServer : public pstd::noncopyable {
    */
   void SyncError();
   void RemoveMaster();
-  bool SetMaster(std::string& master_ip, int master_port);
+  bool SetMaster(std::string& master_ip, int master_port, bool is_consistency=false);
 
   /*
    * Slave State Machine
@@ -176,6 +176,8 @@ class PikaServer : public pstd::noncopyable {
   void UpdateMetaSyncTimestamp();
   void UpdateMetaSyncTimestampWithoutLock();
   bool IsFirstMetaSync();
+  bool IsConsistency(); 
+  void SetIsConsistency(bool is_consistency);
   void SetFirstMetaSync(bool v);
 
   /*
@@ -571,6 +573,7 @@ class PikaServer : public pstd::noncopyable {
   std::string master_ip_;
   int master_port_ = 0;
   int repl_state_ = PIKA_REPL_NO_CONNECT;
+  bool is_consistency_ = false;
   int role_ = PIKA_ROLE_SINGLE;
   int last_meta_sync_timestamp_ = 0;
   bool first_meta_sync_ = false;

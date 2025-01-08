@@ -155,7 +155,7 @@ Status PikaReplClient::Write(const std::string& ip, const int port, const std::s
 
 Status PikaReplClient::Close(const std::string& ip, const int port) { return client_thread_->Close(ip, port); }
 
-Status PikaReplClient::SendMetaSync() {
+Status PikaReplClient::SendMetaSync(bool is_consistency) {
   std::string local_ip;
   std::unique_ptr<net::NetCli> cli (net::NewRedisCli());
   cli->set_connect_timeout(1500);
@@ -180,6 +180,7 @@ Status PikaReplClient::SendMetaSync() {
   request.set_type(InnerMessage::kMetaSync);
   InnerMessage::InnerRequest::MetaSync* meta_sync = request.mutable_meta_sync();
   InnerMessage::Node* node = meta_sync->mutable_node();
+  meta_sync->set_is_consistency(is_consistency);
   node->set_ip(local_ip);
   node->set_port(g_pika_server->port());
 

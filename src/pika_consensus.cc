@@ -781,3 +781,125 @@ Status ConsensusCoordinator::FollowerNegotiate(const std::vector<LogOffset>& hin
   *reply_offset = mem_logger_->last_offset();
   return Status::OK();
 }
+// pacificA public:
+
+void ConsensusCoordinator::SetIsConsistency(bool is_consistency) {
+  std::lock_guard l(is_consistency_rwlock_);
+  is_consistency_ = is_consistency;
+}
+bool ConsensusCoordinator::GetISConsistency() {
+  std::shared_lock l(is_consistency_rwlock_);
+  return is_consistency_;
+}
+
+bool ConsensusCoordinator::checkFinished(const LogOffset& offset) {
+  if (offset <= committed_id_) {
+    return true;
+  }
+  return false;
+}
+
+//// pacificA private:
+
+Status ConsensusCoordinator::PersistAppendBinlog(const std::shared_ptr<Cmd>& cmd_ptr, LogOffset* cur_offset) {
+  std::string content = cmd_ptr->ToRedisProtocol();
+  std::string binlog = std::string();  
+
+  Status s = stable_logger_->Logger()->Put(content, cur_offset, binlog);
+  if (!s.ok()) {
+    std::string db_name = cmd_ptr->db_name().empty() ? g_pika_conf->default_db() : cmd_ptr->db_name();
+    std::shared_ptr<DB> db = g_pika_server->GetDB(db_name);
+    if (db) {
+      db->SetBinlogIoError();
+    }
+
+    return s;
+  }
+  // If successful, append the log entry to the logs
+  logs_->AppendLog(Log::LogItem(*cur_offset, cmd_ptr, binlog));
+
+  return stable_logger_->Logger()->IsOpened();
+}
+
+
+Status ConsensusCoordinator::AppendEntries(const std::shared_ptr<Cmd>& cmd_ptr, LogOffset* cur_logoffset) {
+  std::vector<std::string> keys = cmd_ptr->current_key();
+  // slotkey shouldn't add binlog
+  if (cmd_ptr->name() == kCmdNameSAdd && !keys.empty() &&
+      (keys[0].compare(0, SlotKeyPrefix.length(), SlotKeyPrefix) == 0 ||
+       keys[0].compare(0, SlotTagPrefix.length(), SlotTagPrefix) == 0)) {
+    return Status::OK();
+  }
+
+  // make sure stable log and mem log consistent
+  Status s = PersistAppendBinlog(cmd_ptr, cur_logoffset);
+  if (!s.ok()) {
+    return s;
+  }
+
+  g_pika_server->SignalAuxiliary();
+  return Status::OK();
+}
+Status ConsensusCoordinator::SendBinlog(std::shared_ptr<SlaveNode> slave_ptr, std::string db_name) {
+    std::vector<WriteTask> tasks; 
+
+    // Check if there are new log entries that need to be sent to the slave
+    if (logs_->LastOffset() >= slave_ptr->acked_offset) {
+        // Handle case where the slave's acknowledged offset is outdated
+        if (slave_ptr->acked_offset.l_offset.index + 1 < logs_->FirstOffset().l_offset.index) {
+            // If the slave is too far behind, additional logic (e.g., resending historical logs) should be implemented here
+        }
+
+        // Find the index of the log entry corresponding to the slave's acknowledged offset
+        int index = logs_->FindOffset(slave_ptr->acked_offset);
+        if (index < logs_->Size()) { 
+            for (int i = index; i < logs_->Size(); ++i) {
+                const Log::LogItem& item = logs_->At(i); 
+
+                slave_ptr->SetLastSendTime(pstd::NowMicros());
+
+                RmNode rm_node(slave_ptr->Ip(), slave_ptr->Port(), slave_ptr->DBName(), slave_ptr->SessionId());
+                WriteTask task(rm_node, BinlogChip(item.offset, item.binlog_), slave_ptr->sent_offset, committed_id_);
+                tasks.emplace_back(std::move(task));
+
+                slave_ptr->sent_offset = item.offset;
+            }
+        }
+    }
+
+    if (!tasks.empty()) {
+        g_pika_rm->ProduceWriteQueue(slave_ptr->Ip(), slave_ptr->Port(), db_name, tasks);
+    }
+    return Status::OK(); 
+}
+
+
+// LOG
+Log::Log() = default;
+
+int Log::Size() { return static_cast<int>(logs_.size()); }
+void Log::AppendLog(const LogItem& item) {
+  std::lock_guard lock(logs_mu_);
+  logs_.push_back(item);
+  last_index_ = item.offset;
+}
+LogOffset Log::LastOffset() {
+  std::lock_guard lock(logs_mu_);
+  return last_index_;
+}
+LogOffset Log::FirstOffset() {
+  std::lock_guard lock(logs_mu_);
+  return first_index_;
+}
+LogItem Log::At(int index) {
+  std::lock_guard lock(logs_mu_);
+  return logs_[index];
+}
+int Log::FindOffset(const LogOffset& send_offset) {
+  for (int i = 0; i < logs_.size(); ++i) {
+    if (logs_[i].offset > send_offset) {
+      return i;
+    }
+  }
+  return logs_.size();
+}

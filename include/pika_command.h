@@ -334,6 +334,7 @@ class CmdRes {
     kTxnAbort,
     kMultiKey,
     kNoExists,
+    kConsistencyTimeout,  // consistency time out
   };
 
   CmdRes() = default;
@@ -434,6 +435,8 @@ class CmdRes {
         break;
       case kNoExists:
         return message_;
+      case kConsistencyTimeout:
+        return "-ERR consistency timeout\r\n";
       default:
         break;
     }
@@ -586,7 +589,7 @@ class Cmd : public std::enable_shared_from_this<Cmd> {
   // enable copy, used default copy
   // Cmd(const Cmd&);
   void ProcessCommand(const HintKeys& hint_key = HintKeys());
-  void InternalProcessCommand(const HintKeys& hint_key);
+  void InternalProcessCommand(const HintKeys& hint_key,bool is_consistency = false);
   void DoCommand(const HintKeys& hint_key);
   bool DoReadCommandInCache();
   void LogCommand() const;

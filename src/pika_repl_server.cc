@@ -22,9 +22,7 @@ PikaReplServer::PikaReplServer(const std::set<std::string>& ips, int port, int c
   pika_repl_server_thread_->set_thread_name("PikaReplServer");
 }
 
-PikaReplServer::~PikaReplServer() {
-  LOG(INFO) << "PikaReplServer exit!!!";
-}
+PikaReplServer::~PikaReplServer() { LOG(INFO) << "PikaReplServer exit!!!"; }
 
 int PikaReplServer::Start() {
   pika_repl_server_thread_->set_thread_name("PikaReplServer");
@@ -103,6 +101,8 @@ void PikaReplServer::BuildBinlogSyncResp(const std::vector<WriteTask>& tasks, In
     db->set_slot_id(0);
     InnerMessage::BinlogOffset* boffset = binlog_sync->mutable_binlog_offset();
     BuildBinlogOffset(task.binlog_chip_.offset_, boffset);
+    InnerMessage::BinlogOffset* committed_id = binlog_sync->mutable_committed_id();
+    BuildBinlogOffset(task.committed_id_, committed_id);
     binlog_sync->set_binlog(task.binlog_chip_.binlog_);
   }
 }

@@ -60,6 +60,7 @@ message InnerRequest {
   message MetaSync {
     required Node   node = 1;
     optional string auth = 2;
+    optional bool   is_consistency = 3;
   }
 
   // slave to master
@@ -67,6 +68,8 @@ message InnerRequest {
     required Node         node           = 1;
     required Slot            slot      = 2;
     required BinlogOffset binlog_offset  = 3;
+    required BinlogOffset   committed_id  = 4;
+    required BinlogOffset   prepared_id   = 5;
   }
 
   // slave to master
@@ -146,6 +149,7 @@ message InnerResponse {
     required BinlogOffset   binlog_offset = 2;
     required bytes          binlog        = 3;
     required int32          session_id    = 4;
+    required BinlogOffset   committed_id  = 5;
   }
 
   message RemoveSlaveNode {

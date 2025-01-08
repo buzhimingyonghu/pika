@@ -680,7 +680,7 @@ void PikaServer::RemoveMaster() {
   }
 }
 
-bool PikaServer::SetMaster(std::string& master_ip, int master_port) {
+bool PikaServer::SetMaster(std::string& master_ip, int master_port, bool is_consistency) {
   if (master_ip == "127.0.0.1") {
     master_ip = host_;
   }
@@ -690,6 +690,7 @@ bool PikaServer::SetMaster(std::string& master_ip, int master_port) {
     master_port_ = master_port;
     role_ |= PIKA_ROLE_SLAVE;
     repl_state_ = PIKA_REPL_SHOULD_META_SYNC;
+    is_consistency_ = is_consistency;
     return true;
   }
   return false;
@@ -740,6 +741,14 @@ bool PikaServer::IsFirstMetaSync() {
   return first_meta_sync_;
 }
 
+bool PikaServer::IsConsistency() {
+  std::shared_lock sp_l(state_protector_);
+  return is_consistency_;
+}
+void PikaServer::SetIsConsistency(bool is_consistency) {
+  std::shared_lock sp_l(state_protector_);
+  is_consistency_ = is_consistency;
+}
 void PikaServer::SetFirstMetaSync(bool v) {
   std::lock_guard sp_l(state_protector_);
   first_meta_sync_ = v;

@@ -857,8 +857,7 @@ void Cmd::ProcessCommand(const HintKeys& hint_keys) {
     }
   }
 }
-
-void Cmd::InternalProcessCommand(const HintKeys& hint_keys) {
+void Cmd::InternalProcessCommand(const HintKeys& hint_keys, bool is_consistency) {
   pstd::lock::MultiRecordLock record_lock(db_->LockMgr());
   if (is_write()) {
     record_lock.Lock(current_key());
@@ -871,12 +870,22 @@ void Cmd::InternalProcessCommand(const HintKeys& hint_keys) {
   if (!IsSuspend()) {
     db_->DBLockShared();
   }
+  if(is_consistency){
+    DoBinlog();
+    if(res().ok()){
+        DoCommand(hint_keys);
+    }
+    if (g_pika_conf->slowlog_slower_than() >= 0) {
+        do_duration_ += pstd::NowMicros() - start_us;
+    }
+  }else{
+    DoCommand(hint_keys);
+    if (g_pika_conf->slowlog_slower_than() >= 0) {
+        do_duration_ += pstd::NowMicros() - start_us;
+    }
 
-  DoCommand(hint_keys);
-  if (g_pika_conf->slowlog_slower_than() >= 0) {
-    do_duration_ += pstd::NowMicros() - start_us;
+    DoBinlog();
   }
-  DoBinlog();
 
   if (!IsSuspend()) {
     db_->DBUnlockShared();
@@ -960,9 +969,16 @@ void Cmd::DoBinlog() {
 
     Status s = sync_db_->ConsensusProposeLog(shared_from_this());
     if (!s.ok()) {
-      LOG(WARNING) << sync_db_->SyncDBInfo().ToString() << " Writing binlog failed, maybe no space left on device "
-                   << s.ToString();
-      res().SetRes(CmdRes::kErrOther, s.ToString());
+       if(g_pika_server->IsConsistency()&&s.IsTimeout()){
+         res().SetRes(CmdRes::kConsistencyTimeout, "Timeout waiting for consistency");
+         LOG(WARNING) << sync_db_->SyncDBInfo().ToString() << " Slave node consistency timeout"
+                        << s.ToString();
+       }else{
+        LOG(WARNING) << sync_db_->SyncDBInfo().ToString() << " Writing binlog failed, maybe no space left on device "
+                        << s.ToString();
+        res().SetRes(CmdRes::kErrOther, s.ToString());
+       }
+
       return;
     }
   }

@@ -11,6 +11,7 @@
 #include <sys/socket.h>
 
 #include <utility>
+#include <chrono>
 
 #include "net/include/net_cli.h"
 
@@ -224,25 +225,37 @@ Status SyncMasterDB::GetSlaveState(const std::string& ip, int port, SlaveState* 
 }
 
 Status SyncMasterDB::WakeUpSlaveBinlogSync() {
-  std::unordered_map<std::string, std::shared_ptr<SlaveNode>> slaves = GetAllSlaveNodes();
-  std::vector<std::shared_ptr<SlaveNode>> to_del;
-  for (auto& slave_iter : slaves) {
-    std::shared_ptr<SlaveNode> slave_ptr = slave_iter.second;
-    std::lock_guard l(slave_ptr->slave_mu);
-    if (slave_ptr->sent_offset == slave_ptr->acked_offset) {
-      Status s = ReadBinlogFileToWq(slave_ptr);
-      if (!s.ok()) {
-        to_del.push_back(slave_ptr);
-        LOG(WARNING) << "WakeUpSlaveBinlogSync falied, Delete from RM, slave: " << slave_ptr->ToStringStatus() << " "
-                     << s.ToString();
-      }
+    std::unordered_map<std::string, std::shared_ptr<SlaveNode>> slaves = GetAllSlaveNodes();
+    std::vector<std::shared_ptr<SlaveNode>> to_del;
+
+    for (auto& slave_iter : slaves) {
+        std::shared_ptr<SlaveNode> slave_ptr = slave_iter.second;
+
+        std::lock_guard l(slave_ptr->slave_mu);
+
+        if (slave_ptr->sent_offset == slave_ptr->acked_offset) {
+            Status s;
+            if (coordinator_.GetISConsistency()) {
+                s = coordinator_.SendBinlog(slave_ptr, db_info_.db_name_);
+            } else {
+                s = ReadBinlogFileToWq(slave_ptr);
+            }
+            if (!s.ok()) {
+                to_del.push_back(slave_ptr);
+                LOG(WARNING) << "WakeUpSlaveBinlogSync failed, marking for deletion: "
+                             << slave_ptr->ToStringStatus() << " - " << s.ToString();
+            }
+        }
     }
-  }
-  for (auto& to_del_slave : to_del) {
-    RemoveSlaveNode(to_del_slave->Ip(), to_del_slave->Port());
-  }
-  return Status::OK();
+
+    for (const auto& to_del_slave : to_del) {
+        RemoveSlaveNode(to_del_slave->Ip(), to_del_slave->Port());
+        LOG(INFO) << "Removed slave: " << to_del_slave->ToStringStatus();
+    }
+
+    return Status::OK();
 }
+
 
 Status SyncMasterDB::SetLastRecvTime(const std::string& ip, int port, uint64_t time) {
   std::shared_ptr<SlaveNode> slave_ptr = GetSlaveNode(ip, port);
@@ -380,9 +393,41 @@ bool SyncMasterDB::CheckSessionId(const std::string& ip, int port, const std::st
   return true;
 }
 
-Status SyncMasterDB::ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
-  return coordinator_.ProposeLog(cmd_ptr);
+bool SyncMasterDB::checkFinished(const LogOffset& offset){
+  return coordinator_.checkFinished(offset);
 }
+void SyncMasterDB::SetConsistency(bool is_consistenct){
+  coordinator_.SetIsConsistency(is_consistenct);
+}
+Status SyncMasterDB::ProcessCoordination(){
+  return coordinator_.ProcessCoordination();
+}
+Status SyncMasterDB::ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
+    // If consistency is not required, directly propose the log without waiting for consensus
+    if (!coordinator_.GetISConsistency()) {
+        return coordinator_.ProposeLog(cmd_ptr);
+    }
+
+    auto start = std::chrono::steady_clock::now();
+    LogOffset offset;
+    Status s = coordinator_.AppendEntries(cmd_ptr, &offset); // Append the log entry to the coordinator
+
+    if (!s.ok()) {
+        return s;
+    }
+
+    // Wait for consensus to be achieved within 10 seconds
+    while (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() < 10) {
+        // Check if consensus has been achieved for the given log offset
+        if (checkFinished(offset)) {
+            return Status::OK(); 
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+
+    return Status::Timeout("No consistency achieved within 10 seconds");
+}
+
 
 Status SyncMasterDB::ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
   return coordinator_.ProcessLeaderLog(cmd_ptr, attribute);
@@ -850,7 +895,7 @@ Status PikaReplicaManager::SendMetaSyncRequest() {
   Status s;
   if (time(nullptr) - g_pika_server->GetMetaSyncTimestamp() >= PIKA_META_SYNC_MAX_WAIT_TIME ||
       g_pika_server->IsFirstMetaSync()) {
-    s = pika_repl_client_->SendMetaSync();
+    s = pika_repl_client_->SendMetaSync(g_pika_server->IsConsistency());
     if (s.ok()) {
       g_pika_server->UpdateMetaSyncTimestamp();
       g_pika_server->SetFirstMetaSync(false);

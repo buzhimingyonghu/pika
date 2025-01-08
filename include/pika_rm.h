@@ -92,6 +92,14 @@ class SyncMasterDB : public SyncDB {
   pstd::Mutex session_mu_;
   int32_t session_id_ = 0;
   ConsensusCoordinator coordinator_;
+
+  //pacificA public:
+ public:
+  bool checkFinished(const LogOffset& offset);
+  void SetConsistency(bool is_consistenct);
+  pstd::Status ProcessCoordination(); 
+
+
 };
 
 class SyncSlaveDB : public SyncDB {

@@ -274,9 +274,12 @@ class RmNode : public Node {
 struct WriteTask {
   struct RmNode rm_node_;
   struct BinlogChip binlog_chip_;
+  LogOffset committed_id_ = LogOffset();
   LogOffset prev_offset_;
   WriteTask(const RmNode& rm_node, const BinlogChip& binlog_chip, const LogOffset& prev_offset)
       : rm_node_(rm_node), binlog_chip_(binlog_chip), prev_offset_(prev_offset) {}
+  WriteTask(const RmNode& rm_node, const BinlogChip& binlog_chip, const LogOffset& prev_offset, const LogOffset& committed_id)
+      : rm_node_(rm_node), binlog_chip_(binlog_chip), prev_offset_(prev_offset), committed_id_(committed_id) {}      
 };
 
 // slowlog define
