@@ -178,7 +178,6 @@ Status SyncMasterDB::ReadBinlogFileToWq(const std::shared_ptr<SlaveNode>& slave_
   // 用于存储本次读取的写任务
   std::vector<WriteTask> tasks;
 
-
   for (int i = 0; i < cnt; ++i) {
     std::string msg;   // 用于存储从 binlog 读取的消息
     uint32_t filenum;  // 用于存储 binlog 文件编号
@@ -1112,41 +1111,66 @@ Status PikaReplicaManager::CheckDBRole(const std::string& db, int* role) {
   return Status::OK();  // 返回检查结果
 }
 
+// SelectLocalIp 方法用于根据远程 IP 和端口，选择本地的 IP 地址。
+// 它通过尝试连接到远程节点来获取本地的 IP 地址，并返回该 IP 地址给调用者。
 Status PikaReplicaManager::SelectLocalIp(const std::string& remote_ip, const int remote_port,
                                          std::string* const local_ip) {
+  // 创建一个新的 Redis 客户端实例，用于连接远程节点
   std::unique_ptr<net::NetCli> cli(net::NewRedisCli());
-  cli->set_connect_timeout(1500);
+  cli->set_connect_timeout(1500);  // 设置连接超时时间为 1500 毫秒
+
+  // 尝试连接到指定的远程 IP 和端口
   if ((cli->Connect(remote_ip, remote_port, "")).ok()) {
-    struct sockaddr_in laddr;
-    socklen_t llen = sizeof(laddr);
+    struct sockaddr_in laddr;        // 定义本地地址结构
+    socklen_t llen = sizeof(laddr);  // 获取地址结构的大小
+
+    // 获取当前客户端的本地地址
     getsockname(cli->fd(), reinterpret_cast<struct sockaddr*>(&laddr), &llen);
+
+    // 获取本地 IP 地址，并将其转换为字符串格式
     std::string tmp_ip(inet_ntoa(laddr.sin_addr));
-    *local_ip = tmp_ip;
+    *local_ip = tmp_ip;  // 将获取的本地 IP 地址赋值给输出参数
+
+    // 关闭连接
     cli->Close();
   } else {
+    // 如果连接失败，输出警告日志并返回错误状态
     LOG(WARNING) << "Failed to connect remote node(" << remote_ip << ":" << remote_port << ")";
     return Status::Corruption("connect remote node error");
   }
-  return Status::OK();
+
+  return Status::OK();  // 返回成功状态
 }
 
+// ActivateSyncSlaveDB 方法用于激活同步的从库数据库。
+// 它会检查指定的从库数据库的状态，并根据状态进行相应的处理。
 Status PikaReplicaManager::ActivateSyncSlaveDB(const RmNode& node, const ReplState& repl_state) {
-  std::shared_lock l(dbs_rw_);
-  const DBInfo& p_info = node.NodeDBInfo();
+  std::shared_lock l(dbs_rw_);               // 获取读锁，确保线程安全
+  const DBInfo& p_info = node.NodeDBInfo();  // 获取指定节点的数据库信息
+
+  // 检查该从库是否已经存在于同步的从库列表中
   if (sync_slave_dbs_.find(p_info) == sync_slave_dbs_.end()) {
     return Status::NotFound("Sync Slave DB " + node.ToString() + " not found");
   }
+
+  // 获取当前同步从库的状态
   ReplState ssp_state = sync_slave_dbs_[p_info]->State();
+
+  // 如果从库状态不为 kNoConnect 或 kDBNoConnect，则表示状态不正常
   if (ssp_state != ReplState::kNoConnect && ssp_state != ReplState::kDBNoConnect) {
     return Status::Corruption("Sync Slave DB in " + ReplStateMsg[ssp_state]);
   }
-  std::string local_ip;
-  Status s = SelectLocalIp(node.Ip(), node.Port(), &local_ip);
+
+  std::string local_ip;                                         // 存储本地 IP 地址
+  Status s = SelectLocalIp(node.Ip(), node.Port(), &local_ip);  // 获取本地 IP 地址
+
   if (s.ok()) {
+    // 如果成功获取本地 IP，则设置该从库的本地 IP 地址并激活该同步数据库
     sync_slave_dbs_[p_info]->SetLocalIp(local_ip);
-    sync_slave_dbs_[p_info]->Activate(node, repl_state);
+    sync_slave_dbs_[p_info]->Activate(node, repl_state);  // 激活从库
   }
-  return s;
+
+  return s;  // 返回获取本地 IP 地址的状态
 }
 
 Status PikaReplicaManager::SendMetaSyncRequest() {
@@ -1303,7 +1327,7 @@ std::shared_ptr<SyncSlaveDB> PikaReplicaManager::GetSyncSlaveDBByName(const DBIn
 
 // 执行同步从库状态机，管理从库的同步状态
 Status PikaReplicaManager::RunSyncSlaveDBStateMachine() {
-  std::shared_lock l(dbs_rw_);                        // 共享锁，防止并发访问修改数据库
+  std::shared_lock l(dbs_rw_);
   for (const auto& item : sync_slave_dbs_) {          // 遍历所有同步从数据库
     DBInfo p_info = item.first;                       // 获取数据库信息
     std::shared_ptr<SyncSlaveDB> s_db = item.second;  // 获取从库对象
@@ -1317,7 +1341,7 @@ Status PikaReplicaManager::RunSyncSlaveDBStateMachine() {
       continue;
     } else if (s_db->State() == ReplState::kWaitDBSync) {  // 等待数据库同步完成
       Status s = s_db->ActivateRsync();                    // 激活 rsync 同步
-      if (!s.ok()) {                                       // 如果激活失败，打印警告并跳过
+      if (!s.ok()) {
         LOG(WARNING) << "Slave DB: " << s_db->DBName() << " rsync failed! full synchronization will be retried later";
         continue;
       }
