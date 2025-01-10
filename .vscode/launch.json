@@ -1,0 +1,45 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug C++",
+            "type": "cppdbg", // 使用 cppdbg 类型
+            "request": "launch", // 启动调试器
+            "program": "${workspaceFolder}/output/pika", // 调试的可执行文件路径，通常是编译后的文件
+            "args": [
+                "-c",
+                "./conf/pika.conf"
+            ], // 程序的命令行参数（可选）
+            "stopAtEntry": false, // 是否在入口处停止（可选）
+            "cwd": "${workspaceFolder}", // 工作目录，通常是项目的根目录
+            "environment": [],
+            "externalConsole": false, // 是否启用外部控制台
+            "MIMode": "gdb", // 使用 GDB 调试器（Linux/macOS）
+            /*你提供的 setupCommands 部分是 GDB 的一条配置，用来启用 "pretty-printing" 功能，
+            目的是让 GDB 更易读地显示复杂数据结构（例如 std::vector、std::map 等）。
+            这对于调试 C++ 程序时查看容器和自定义结构体的内容非常有帮助。*/
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "防止gdb打开标准库函数",
+                    "text": "-interpreter-exec console \"skip -rfu std::.*\"",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "将反汇编风格设置为 Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "miDebuggerPath": "/usr/bin/gdb", // GDB 的路径（Linux/macOS）
+            // "preLaunchTask": "build", // 在调试之前执行的任务（如编译）
+            "serverLaunchTimeout": 20000, // 20秒的启动超时
+            "filterStdout": true, // 过滤标准输出
+            "filterStderr": true, // 过滤标准错误输出
+        },
+    ]
+}

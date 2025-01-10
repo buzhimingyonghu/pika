@@ -48,7 +48,7 @@ gdb.txt
 tags
 
 # IDE
-.vscode
+
 .DS_Store
 
 # generate
