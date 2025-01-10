@@ -230,6 +230,13 @@ Status PikaReplClient::SendDBSync(const std::string& ip, uint32_t port, const st
   return client_thread_->Write(ip, static_cast<int32_t>(port) + kPortShiftReplServer, to_send);
 }
 
+void PikaReplClient::BuildBinlogOffset(const LogOffset& offset, InnerMessage::BinlogOffset* boffset) {
+  boffset->set_filenum(offset.b_offset.filenum);
+  boffset->set_offset(offset.b_offset.offset);
+  boffset->set_term(offset.l_offset.term);
+  boffset->set_index(offset.l_offset.index);
+}
+
 Status PikaReplClient::SendTrySync(const std::string& ip, uint32_t port, const std::string& db_name,
                                    const BinlogOffset& boffset, const std::string& local_ip) {
   InnerMessage::InnerRequest request;
@@ -248,6 +255,12 @@ Status PikaReplClient::SendTrySync(const std::string& ip, uint32_t port, const s
   db->set_slot_id(0);
 
   InnerMessage::BinlogOffset* binlog_offset = try_sync->mutable_binlog_offset();
+  InnerMessage::BinlogOffset* committed_id = try_sync->mutable_committed_id();
+  InnerMessage::BinlogOffset* prepared_id  = try_sync->mutable_prepared_id();
+  std::shared_ptr<SyncMasterDB> db =g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  BuildBinlogOffset(db->ConsensusCommittedId(),committed_id);
+  BuildBinlogOffset(db->ConsensusPreparedId,prepared_id);
+
   binlog_offset->set_filenum(boffset.filenum);
   binlog_offset->set_offset(boffset.offset);
 

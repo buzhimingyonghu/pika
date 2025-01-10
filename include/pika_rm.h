@@ -71,6 +71,9 @@ class SyncMasterDB : public SyncDB {
   pstd::Status ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr);
   pstd::Status ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
   LogOffset ConsensusCommittedIndex();
+  LogOffset ConsensusCommittedId();
+  LogOffset ConsensusPreparedId();
+
   LogOffset ConsensusLastIndex();
 
   std::shared_ptr<StableLog> StableLogger() { return coordinator_.StableLogger(); }

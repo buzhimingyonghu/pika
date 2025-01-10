@@ -435,6 +435,9 @@ Status SyncMasterDB::ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_p
 
 LogOffset SyncMasterDB::ConsensusCommittedIndex() { return coordinator_.committed_index(); }
 
+LogOffset SyncMasterDB::ConsensusCommittedId() { return coordinator_.CommittedId(); }
+LogOffset SyncMasterDB::ConsensusPreparedId() { return coordinator_.PreparedId(); }
+
 LogOffset SyncMasterDB::ConsensusLastIndex() { return coordinator_.MemLogger()->last_offset(); }
 
 std::shared_ptr<SlaveNode> SyncMasterDB::GetSlaveNode(const std::string& ip, int port) {

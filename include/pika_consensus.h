@@ -210,11 +210,15 @@ class ConsensusCoordinator {
   void SetIsConsistency(bool is_consistency);
   bool GetISConsistency();
   pstd::Status SendBinlog(std::shared_ptr<SlaveNode> slave_ptr, std::string db_name);
-  //需要完成
-  pstd::Status ProcessCoordination(); 
-  LogOffset CommittedIndex() {
+  // 需要完成
+  pstd::Status ProcessCoordination();
+  LogOffset CommittedId() {
     std::lock_guard l(is_consistency_rwlock_);
     return committed_id_;
+  }
+  LogOffset PreparedId() {
+    std::lock_guard l(is_consistency_rwlock_);
+    return prepared_id_;
   }
 
  private:
@@ -225,8 +229,7 @@ class ConsensusCoordinator {
   bool is_consistency_ = false;
   std::shared_mutex committed_id_rwlock_;
   LogOffset committed_id_;
-  std::vector<int32_t> prepared_idx_;
-  std::vector<int32_t> next_idx_;
+  LogOffset prepared_id_;
   std::shared_ptr<Log> logs_;
 };
 

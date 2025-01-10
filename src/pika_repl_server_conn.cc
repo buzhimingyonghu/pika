@@ -189,6 +189,16 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
                                             InnerMessage::InnerResponse::TrySync* try_sync_response) {
   const InnerMessage::Node& node = try_sync_request.node();
   const InnerMessage::BinlogOffset& slave_boffset = try_sync_request.binlog_offset();
+  const InnerMessage::BinlogOffset& c_id = try_sync_request.committed_id();
+  const InnerMessage::BinlogOffset& p_id = try_sync_request.prepared_id();
+  LogOffset committed_id(BinlogOffset(c_id.filenum(),c_id.offset()),LogicOffset(c_id.term(),c_id.index()));
+  LogOffset prepared_id(BinlogOffset(p_id.filenum(),p_id.offset()),LogicOffset(p_id.term(),p_id.index()));
+  if(db->ConsensusCommittedId()<committed_id){
+    try_sync_response.set_code(InnerMessage::kError);
+    try_sync_response.set_reply("Slave CommittedId Greater than master");
+    LOG(WARNING) << "DB Name: " << db_name << "Slave CommittedId Greater than master";
+    return false;
+  } 
   std::string db_name = db->DBName();
   BinlogOffset boffset;
   Status s = db->Logger()->GetProducerStatus(&(boffset.filenum), &(boffset.offset));
@@ -216,8 +226,24 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kSyncPointBePurged);
     return false;
   }
-
   PikaBinlogReader reader;
+
+  reader.Seek(db->Logger(), committed_id.b_offset.filenum, committed_id.b_offset.offset);
+  BinlogOffset seeked_offset;
+  reader.GetReaderStatus(&(seeked_offset.filenum), &(seeked_offset.offset));
+  if (seeked_offset.filenum != committed_id.b_offset.filenum || seeked_offset.offset != committed_id.b_offset.offset) {
+    try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
+    LOG(WARNING) << "Slave offset is not a start point of cur log, "
+                << "Slave ip: " << node.ip() 
+                << ", Slave port: " << node.port() 
+                << ", DB: " << db_name
+                << ". Committed ID: filenum: " << committed_id.b_offset.filenum 
+                << ", offset: " << committed_id.b_offset.offset
+                << ". Closest start point: filenum: " << seeked_offset.filenum
+                << ", offset: " << seeked_offset.offset;
+    return false;
+  }
+
   reader.Seek(db->Logger(), slave_boffset.filenum(), slave_boffset.offset());
   BinlogOffset seeked_offset;
   reader.GetReaderStatus(&(seeked_offset.filenum), &(seeked_offset.offset));
