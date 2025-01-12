@@ -16,11 +16,229 @@ const (
 	defaultValue = 0
 )
 
+type statusToGaugeParser struct {
+    statusMapping map[string]int
+}
+
+func (p *statusToGaugeParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
+    m.Lookup(func(m MetaData) {
+        metric := Metric{
+            MetaData:    m,
+            LabelValues: make([]string, len(m.Labels)),
+            Value:       defaultValue,
+        }
+
+        for i, labelName := range m.Labels {
+            labelValue, ok := findInMap(labelName, opt.Extracts)
+            if !ok {
+                log.Debugf("statusToGaugeParser::Parse not found label value. metricName:%s labelName:%s",
+                    m.Name, labelName)
+            }
+
+            metric.LabelValues[i] = labelValue
+        }
+
+        if m.ValueName != "" {
+            if v, ok := findInMap(m.ValueName, opt.Extracts); !ok {
+                log.Warnf("statusToGaugeParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
+                return
+            } else {
+                mappedValue, exists := p.statusMapping[v]
+                if !exists {
+                    log.Warnf("statusToGaugeParser::Parse unknown status value. metricName:%s valueName:%s rawValue:%s",
+                        m.Name, m.ValueName, v)
+                    mappedValue = defaultValue
+                }
+                metric.Value = float64(mappedValue)
+            }
+        }
+
+        if err := c.Collect(metric); err != nil {
+            log.Errorf("statusToGaugeParser::Parse metric collect failed. metric:%#v err:%s",
+                m, m.ValueName)
+        }
+    })
+}
+
+
+
 type ParseOption struct {
-	Version       *semver.Version
-	Extracts      map[string]string
-	ExtractsProxy map[string][]int64
-	Info          string
+	Version        *semver.Version
+	Extracts       map[string]string
+	ExtractsProxy  map[string][]int64
+	Info           string
+	CurrentVersion VersionChecker
+}
+type VersionChecker interface {
+	CheckContainsEmptyValueName(key string) bool
+	CheckContainsEmptyRegexName(key string) bool
+	InitVersionChecker()
+}
+type VersionChecker336 struct {
+	EmptyValueName []string
+	EmptyRegexName []string
+}
+
+func (v *VersionChecker336) InitVersionChecker() {
+	if v.EmptyValueName == nil {
+		v.EmptyValueName = []string{
+			"instantaneous_output_repl_kbps",
+			"total_net_output_bytes",
+			"cache_db_num",
+			"hits_per_sec",
+			"cache_status",
+			"total_net_input_bytes",
+			"instantaneous_output_kbps",
+			"instantaneous_input_kbps",
+			"total_net_repl_input_bytes",
+			"instantaneous_input_repl_kbps",
+			"slow_logs_count",
+			"total_net_repl_output_bytes",
+			"cache_memory",
+		}
+	}
+	if v.EmptyRegexName == nil {
+
+		v.EmptyRegexName = []string{
+			"hitratio_per_sec",
+			"total_blob_file_size",
+			"block_cache_capacity",
+			"background_errors",
+			"num_running_flushes",
+			"mem_table_flush_pending",
+			"estimate_pending_compaction_bytes",
+			"block_cache_pinned_usage",
+			"pending_compaction_bytes_stops",
+			"estimate_live_data_size",
+			"pending_compaction_bytes_delays",
+			"num_running_compactions",
+			"live_blob_file_size",
+			"cur_size_active_mem_table",
+			"block_cache_usage",
+			"cf_l0_file_count_limit_stops_with_ongoing_compaction",
+			"cur_size_all_mem_tables",
+			"num_immutable_mem_table",
+			"compaction_pending",
+			"live_sst_files_size",
+			"memtable_limit_stops",
+			"total_delays",
+			"l0_file_count_limit_delays",
+			"estimate_table_readers_mem",
+			"num_immutable_mem_table_flushed",
+			"compaction_Sum",
+			"size_all_mem_tables",
+			"total_sst_files_size",
+			"commandstats_info",
+			"num_snapshots",
+			"current_super_version_number",
+			"memtable_limit_delays",
+			"estimate_num_keys",
+			"num_blob_files",
+			"total_stops",
+			"cf_l0_file_count_limit_delays_with_ongoing_compaction",
+			"num_live_versions",
+			"l0_file_count_limit_stops",
+			"compaction",
+			"blob_stats",
+		}
+
+	}
+}
+func (v *VersionChecker336) CheckContainsEmptyValueName(key string) bool {
+	for _, str := range v.EmptyValueName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+func (v *VersionChecker336) CheckContainsEmptyRegexName(key string) bool {
+	for _, str := range v.EmptyRegexName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+
+type VersionChecker350 struct {
+	EmptyValueName []string
+	EmptyRegexName []string
+}
+
+func (v *VersionChecker350) InitVersionChecker() {
+	if v.EmptyValueName == nil {
+		v.EmptyValueName = []string{
+			"cache_db_num",
+			"cache_status",
+			"cache_memory",
+			"hits_per_sec",
+			"slow_logs_count",
+		}
+	}
+	if v.EmptyRegexName == nil {
+		v.EmptyRegexName = []string{
+			"hitratio_per_sec",
+		}
+	}
+}
+func (v *VersionChecker350) CheckContainsEmptyValueName(key string) bool {
+	for _, str := range v.EmptyValueName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+func (v *VersionChecker350) CheckContainsEmptyRegexName(key string) bool {
+	for _, str := range v.EmptyRegexName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+
+type VersionChecker355 struct {
+	EmptyValueName []string
+	EmptyRegexName []string
+}
+
+func (v *VersionChecker355) InitVersionChecker() {
+	if v.EmptyValueName == nil {
+		v.EmptyValueName = []string{
+			"cache_db_num",
+			"cache_status",
+			"cache_memory",
+			"hits_per_sec",
+		}
+	}
+	if v.EmptyRegexName == nil {
+		v.EmptyRegexName = []string{
+			"hitratio_per_sec",
+			"keyspace_info_>=3.1.0",
+			"keyspace_info_all_>=3.3.3",
+			"binlog_>=3.2.0",
+			"keyspace_last_start_time",
+			"is_scaning_keyspace",
+		}
+	}
+}
+func (v *VersionChecker355) CheckContainsEmptyValueName(key string) bool {
+	for _, str := range v.EmptyValueName {
+		if str == key {
+			return true
+		}
+	}
+	return false
+}
+func (v *VersionChecker355) CheckContainsEmptyRegexName(key string) bool {
+	for _, str := range v.EmptyRegexName {
+		if str == key {
+			return true
+		}
+	}
+	return false
 }
 
 type Parser interface {
@@ -112,9 +330,10 @@ func (p *regexParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 	matchMaps := p.regMatchesToMap(s)
 	if len(matchMaps) == 0 {
-		log.Warnf("regexParser::Parse reg find sub match nil. name:%s", p.name)
+		if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyRegexName(p.name) {
+			log.Warnf("regexParser::Parse reg find sub match nil. name:%s", p.name)
+		}
 	}
-
 	extracts := make(map[string]string)
 	for k, v := range opt.Extracts {
 		extracts[k] = v
@@ -136,7 +355,6 @@ func (p *regexParser) regMatchesToMap(s string) []map[string]string {
 
 	multiMatches := p.reg.FindAllStringSubmatch(s, -1)
 	if len(multiMatches) == 0 {
-		log.Errorf("regexParser::regMatchesToMap reg find sub match nil. name:%s", p.name)
 		return nil
 	}
 
@@ -172,8 +390,11 @@ func (p *normalParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 		if m.ValueName != "" {
 			if v, ok := findInMap(m.ValueName, opt.Extracts); !ok {
-				log.Warnf("normalParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
+				if opt.CurrentVersion == nil || !opt.CurrentVersion.CheckContainsEmptyValueName(m.ValueName) {
+					log.Warnf("normalParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
+				}
 				return
+
 			} else {
 				metric.Value = convertToFloat64(v)
 			}
@@ -208,7 +429,6 @@ func (p *timeParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 
 		if m.ValueName != "" {
 			if v, ok := findInMap(m.ValueName, opt.Extracts); !ok {
-				log.Warnf("timeParser::Parse not found value. metricName:%s valueName:%s", m.Name, m.ValueName)
 				return
 			} else {
 				t, err := convertTimeToUnix(v)
@@ -227,6 +447,7 @@ func (p *timeParser) Parse(m MetricMeta, c Collector, opt ParseOption) {
 }
 
 func findInMap(key string, ms ...map[string]string) (string, bool) {
+
 	for _, m := range ms {
 		if v, ok := m[key]; ok {
 			return v, true
@@ -234,7 +455,6 @@ func findInMap(key string, ms ...map[string]string) (string, bool) {
 	}
 	return "", false
 }
-
 func trimSpace(s string) string {
 	return strings.TrimRight(strings.TrimLeft(s, " "), " ")
 }

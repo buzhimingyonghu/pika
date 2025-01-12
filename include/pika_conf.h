@@ -86,9 +86,8 @@ class PikaConf : public pstd::BaseConf {
     std::shared_lock l(rwlock_);
     return log_retention_time_;
   }
-  std::string log_level() {
-    std::shared_lock l(rwlock_);
-    return log_level_;
+  bool log_net_activities() {
+    return log_net_activities_.load(std::memory_order::memory_order_relaxed);
   }
   std::string db_path() {
     std::shared_lock l(rwlock_);
@@ -772,6 +771,11 @@ class PikaConf : public pstd::BaseConf {
     TryPushDiffCommands("write-buffer-size", std::to_string(value));
     write_buffer_size_ = value;
   }
+  void SetLogRetentionTime(const int& value) {
+    std::lock_guard l(rwlock_);
+    TryPushDiffCommands("log-retention-time", std::to_string(value));
+    log_retention_time_ = value;
+  }
   void SetMinWriteBufferNumberToMerge(const int& value) {
     std::lock_guard l(rwlock_);
     TryPushDiffCommands("min-write-buffer-number-to-merge", std::to_string(value));
@@ -826,10 +830,13 @@ class PikaConf : public pstd::BaseConf {
     max_compaction_bytes_ = value;
   }
 
-  void SetLogLevel(const std::string& value) {
-    std::lock_guard l(rwlock_);
-    TryPushDiffCommands("loglevel", value);
-    log_level_ = value;
+  void SetLogNetActivities(std::string& value) {
+    TryPushDiffCommands("log-net-activities", value);
+    if (value == "yes") {
+      log_net_activities_.store(true);
+    } else {
+      log_net_activities_.store(false);
+    }
   }
 
   // Rsync Rate limiting configuration
@@ -933,6 +940,7 @@ class PikaConf : public pstd::BaseConf {
   int cache_lfu_decay_time() { return cache_lfu_decay_time_; }
   int Load();
   int ConfigRewrite();
+  int ConfigRewriteSlaveOf();
   int ConfigRewriteReplicationID();
 
  private:
@@ -952,7 +960,6 @@ class PikaConf : public pstd::BaseConf {
   std::string slaveof_;
   std::string log_path_;
   int log_retention_time_;
-  std::string log_level_;
   std::string db_path_;
   int db_instance_num_ = 0;
   std::string db_sync_path_;
@@ -1093,6 +1100,8 @@ class PikaConf : public pstd::BaseConf {
   std::atomic_int cache_maxmemory_policy_ = 1;
   std::atomic_int cache_maxmemory_samples_ = 5;
   std::atomic_int cache_lfu_decay_time_ = 1;
+  std::atomic<bool> log_net_activities_ = false;
+
 
   // rocksdb blob
   bool enable_blob_files_ = false;
