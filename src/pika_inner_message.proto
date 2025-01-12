@@ -66,10 +66,9 @@ message InnerRequest {
   // slave to master
   message TrySync {
     required Node         node           = 1;
-    required Slot            slot      = 2;
+    required Slot            slot        = 2;
     required BinlogOffset binlog_offset  = 3;
-    required BinlogOffset   committed_id  = 4;
-    required BinlogOffset   prepared_id   = 5;
+    required BinlogOffset committed_id   = 4;
   }
 
   // slave to master
@@ -136,6 +135,7 @@ message InnerResponse {
     required Slot         slot            = 2;
     optional BinlogOffset binlog_offset   = 3;
     optional int32        session_id      = 4;
+    required BinlogOffset prepared_id     = 6;
   }
 
   message DBSync {

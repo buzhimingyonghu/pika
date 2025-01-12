@@ -88,7 +88,7 @@ std::string SlaveNode::ToStringStatus() {
 }
 
 Status SlaveNode::Update(const LogOffset& start, const LogOffset& end, LogOffset* updated_offset) {
-  if (slave_state != kSlaveBinlogSync) {
+  if (slave_state != kSlaveBinlogSync||slave_state != KCandidate) {
     return Status::Corruption(ToString() + "state not BinlogSync");
   }
   *updated_offset = LogOffset();

@@ -119,7 +119,11 @@ Status SyncMasterDB::SyncBinlogToWq(const std::string& ip, int port) {
   }
   Status s;
   slave_ptr->Lock();
-  s = ReadBinlogFileToWq(slave_ptr);
+  if (coordinator_.GetISConsistency()) {
+    s = coordinator_.SendBinlog(slave_ptr, slave_ptr->DBName());
+  }else{
+    s = ReadBinlogFileToWq(slave_ptr);
+  }
   slave_ptr->Unlock();
   if (!s.ok()) {
     return s;
@@ -399,9 +403,57 @@ bool SyncMasterDB::checkFinished(const LogOffset& offset){
 void SyncMasterDB::SetConsistency(bool is_consistenct){
   coordinator_.SetIsConsistency(is_consistenct);
 }
+bool SyncMasterDB::GetISConsistency(){
+  coordinator_.GetISConsistency();
+}
+void SyncMasterDB::SetPreparedId(const LogOffset& offset){
+  coordinator_.SetPreparedId(offset);
+}
+void SyncMasterDB::SetCommittedId(const LogOffset& offset){
+  coordinator_.SetCommittedId(offset);
+}
+Status SyncMasterDB::AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
+  return coordinator_.AppendSlaveEntries(cmd_ptr, attribute);
+}
 Status SyncMasterDB::ProcessCoordination(){
   return coordinator_.ProcessCoordination();
 }
+Status SyncMasterDB::UpdateCommittedID(){
+  return coordinator_.UpdateCommittedID();
+}
+Status SyncMasterDB::Truncate(const LogOffset& offset){
+  return coordinator_.Truncate(offset);
+}
+Status SyncMasterDB::CommitAppLog(const LogOffset& master_committed_id){
+  return coordinator_.CommitAppLog(master_committed_id);
+}
+Status SyncMasterDB::AppendCandidateBinlog(const std::string& ip, int port, const LogOffset& offset) {
+   std::shared_ptr<SlaveNode> slave_ptr = GetSlaveNode(ip, port);  
+  if (!slave_ptr) {
+    return Status::NotFound("ip " + ip + " port " + std::to_string(port)); 
+  }
+
+  {
+    std::lock_guard l(slave_ptr->slave_mu);     
+    slave_ptr->slave_state = KCandidate;  
+    slave_ptr->sent_offset = offset;           
+    slave_ptr->acked_offset = offset;         
+    Status s = slave_ptr->InitBinlogFileReader(Logger(), offset.b_offset);
+    if (!s.ok()) {
+      return Status::Corruption("Init binlog file reader failed" + s.ToString());  // 如果初始化失败，返回错误状态
+    }
+    g_pika_rm->DropItemInOneWriteQueue(ip, port, slave_ptr->DBName());  
+    slave_ptr->b_state = kReadFromFile; 
+  }
+
+  Status s = coordinator_.SendBinlog(slave_ptr, slave_ptr->DBName());
+  if (!s.ok()) {
+    return s;  
+  }
+
+  return Status::OK();  
+}
+
 Status SyncMasterDB::ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
     // If consistency is not required, directly propose the log without waiting for consensus
     if (!coordinator_.GetISConsistency()) {
@@ -410,7 +462,7 @@ Status SyncMasterDB::ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
 
     auto start = std::chrono::steady_clock::now();
     LogOffset offset;
-    Status s = coordinator_.AppendEntries(cmd_ptr, &offset); // Append the log entry to the coordinator
+    Status s = coordinator_.AppendEntries(cmd_ptr, offset); // Append the log entry to the coordinator
 
     if (!s.ok()) {
         return s;
@@ -751,6 +803,12 @@ Status PikaReplicaManager::UpdateSyncBinlogStatus(const RmNode& slave, const Log
   Status s = db->ConsensusUpdateSlave(slave.Ip(), slave.Port(), offset_start, offset_end);
   if (!s.ok()) {
     return s;
+  }
+  if(db->GetISConsistency()){
+    s = db->UpdateCommittedID();
+    if (!s.ok()) {
+      return s;
+    }
   }
   s = db->SyncBinlogToWq(slave.Ip(), slave.Port());
   if (!s.ok()) {
@@ -1101,4 +1159,10 @@ void PikaReplicaManager::RmStatus(std::string* info) {
                << iter.second->ToStringStatus() << "\r\n";
   }
   info->append(tmp_stream.str());
+}
+void PikaReplicaManager::BuildBinlogOffset(const LogOffset& offset, InnerMessage::BinlogOffset* boffset) {
+  boffset->set_filenum(offset.b_offset.filenum);
+  boffset->set_offset(offset.b_offset.offset);
+  boffset->set_term(offset.l_offset.term);
+  boffset->set_index(offset.l_offset.index);
 }

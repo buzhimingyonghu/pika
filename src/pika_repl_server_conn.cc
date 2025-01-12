@@ -190,16 +190,14 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
   const InnerMessage::Node& node = try_sync_request.node();
   const InnerMessage::BinlogOffset& slave_boffset = try_sync_request.binlog_offset();
   const InnerMessage::BinlogOffset& c_id = try_sync_request.committed_id();
-  const InnerMessage::BinlogOffset& p_id = try_sync_request.prepared_id();
+  std::string db_name = db->DBName();
   LogOffset committed_id(BinlogOffset(c_id.filenum(),c_id.offset()),LogicOffset(c_id.term(),c_id.index()));
-  LogOffset prepared_id(BinlogOffset(p_id.filenum(),p_id.offset()),LogicOffset(p_id.term(),p_id.index()));
   if(db->ConsensusCommittedId()<committed_id){
-    try_sync_response.set_code(InnerMessage::kError);
-    try_sync_response.set_reply("Slave CommittedId Greater than master");
+    try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
     LOG(WARNING) << "DB Name: " << db_name << "Slave CommittedId Greater than master";
     return false;
   } 
-  std::string db_name = db->DBName();
+
   BinlogOffset boffset;
   Status s = db->Logger()->GetProducerStatus(&(boffset.filenum), &(boffset.offset));
   if (!s.ok()) {
@@ -208,6 +206,9 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     return false;
   }
   InnerMessage::BinlogOffset* master_db_boffset = try_sync_response->mutable_binlog_offset();
+  InnerMessage::BinlogOffset* master_prepared_id = try_sync_response->mutable_prepared_id();
+  g_pika_rm->BuildBinlogOffset(LogOffset(),master_prepared_id);
+  
   master_db_boffset->set_filenum(boffset.filenum);
   master_db_boffset->set_offset(boffset.offset);
 
@@ -227,22 +228,25 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     return false;
   }
   PikaBinlogReader reader;
-
-  reader.Seek(db->Logger(), committed_id.b_offset.filenum, committed_id.b_offset.offset);
-  BinlogOffset seeked_offset;
-  reader.GetReaderStatus(&(seeked_offset.filenum), &(seeked_offset.offset));
-  if (seeked_offset.filenum != committed_id.b_offset.filenum || seeked_offset.offset != committed_id.b_offset.offset) {
-    try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
-    LOG(WARNING) << "Slave offset is not a start point of cur log, "
-                << "Slave ip: " << node.ip() 
-                << ", Slave port: " << node.port() 
-                << ", DB: " << db_name
-                << ". Committed ID: filenum: " << committed_id.b_offset.filenum 
-                << ", offset: " << committed_id.b_offset.offset
-                << ". Closest start point: filenum: " << seeked_offset.filenum
-                << ", offset: " << seeked_offset.offset;
-    return false;
+  if(db->GetISConsistency()){
+    reader.Seek(db->Logger(), committed_id.b_offset.filenum, committed_id.b_offset.offset);
+    BinlogOffset seeked_offset;
+    reader.GetReaderStatus(&(seeked_offset.filenum), &(seeked_offset.offset));
+    if (seeked_offset.filenum != committed_id.b_offset.filenum || seeked_offset.offset != committed_id.b_offset.offset) {
+      try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
+      LOG(WARNING) << "Slave offset is not a start point of cur log, "
+                  << "Slave ip: " << node.ip() 
+                  << ", Slave port: " << node.port() 
+                  << ", DB: " << db_name
+                  << ". Committed ID: filenum: " << committed_id.b_offset.filenum 
+                  << ", offset: " << committed_id.b_offset.offset
+                  << ". Closest start point: filenum: " << seeked_offset.filenum
+                  << ", offset: " << seeked_offset.offset;
+      return false;
+    }
+  g_pika_rm->BuildBinlogOffset(db->ConsensusPreparedId(),master_prepared_id);
   }
+
 
   reader.Seek(db->Logger(), slave_boffset.filenum(), slave_boffset.offset());
   BinlogOffset seeked_offset;
@@ -389,8 +393,11 @@ void PikaReplServerConn::HandleBinlogSyncRequest(void* arg) {
       conn->NotifyClose();
       return;
     }
-
-    Status s = master_db->ActivateSlaveBinlogSync(node.ip(), node.port(), range_start);
+    if(master_db->GetISConsistency()){
+      Status s = master_db->AppendCandidateBinlog(node.ip(), node.port(), range_start);
+    }else{
+      Status s = master_db->ActivateSlaveBinlogSync(node.ip(), node.port(), range_start);
+    }
     if (!s.ok()) {
       LOG(WARNING) << "Activate Binlog Sync failed " << slave_node.ToString() << " " << s.ToString();
       conn->NotifyClose();
@@ -410,6 +417,7 @@ void PikaReplServerConn::HandleBinlogSyncRequest(void* arg) {
     conn->NotifyClose();
     return;
   }
+  
 
   g_pika_server->SignalAuxiliary();
 }

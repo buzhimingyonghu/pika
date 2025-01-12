@@ -59,7 +59,6 @@ class PikaReplClient {
 
   pstd::Status Write(const std::string& ip, int port, const std::string& msg);
   pstd::Status Close(const std::string& ip, int port);
-  void BuildBinlogOffset(const LogOffset& offset, InnerMessage::BinlogOffset* boffset);
 
   void Schedule(net::TaskFunc func, void* arg);
   void ScheduleByDBName(net::TaskFunc func, void* arg, const std::string& db_name);

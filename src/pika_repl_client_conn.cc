@@ -200,6 +200,8 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
     return;
   }
   const InnerMessage::InnerResponse_TrySync& try_sync_response = response->try_sync();
+  const InnerMessage::BinlogOffset& prepared_id = try_sync_response.prepared_id();
+  LogOffset master_prepared_id(BinlogOffset(prepared_id.filenum(),prepared_id.offset()),LogicOffset(prepared_id.term(),prepared_id.index()));
   const InnerMessage::Slot& db_response = try_sync_response.slot();
   std::string db_name = db_response.db_name();
   std::shared_ptr<SyncMasterDB> db =
@@ -227,7 +229,16 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
     slave_db->SetReplState(ReplState::kConnected);
     // after connected, update receive time first to avoid connection timeout
     slave_db->SetLastRecvTime(pstd::NowMicros());
-
+    if(master_prepared_id<db->ConsensusPreparedId()){
+      if(master_prepared_id<db->ConsensusCommittedId()){
+        slave_db->SetReplState(ReplState::kError);
+        LOG(WARNING) << "DB: " << db_name << " master committedId > slave committedId";
+        return;
+      }
+      db->SetPreparedId(master_prepared_id);
+      // 向主的preparedid看齐，多余的裁剪掉
+      db->Truncate(master_prepared_id);
+    }
     LOG(INFO) << "DB: " << db_name << " TrySync Ok";
   } else if (try_sync_response.reply_code() == InnerMessage::InnerResponse::TrySync::kSyncPointBePurged) {
     slave_db->SetReplState(ReplState::kTryDBSync);

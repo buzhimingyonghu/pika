@@ -100,7 +100,15 @@ class SyncMasterDB : public SyncDB {
  public:
   bool checkFinished(const LogOffset& offset);
   void SetConsistency(bool is_consistenct);
+  bool GetISConsistency();
   pstd::Status ProcessCoordination(); 
+  void SetPreparedId(const LogOffset& offset);
+  void SetCommittedId(const LogOffset& offset);
+  pstd::Status AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
+  pstd::Status AppendCandidateBinlog(const std::string& ip, int port, const LogOffset& offset);
+  pstd::Status UpdateCommittedID();
+  pstd::Status CommitAppLog(const LogOffset& master_committed_id);
+  pstd::Status Truncate(const LogOffset& offset);
 
 
 };
@@ -201,6 +209,8 @@ class PikaReplicaManager {
   void ReplServerUpdateClientConnMap(const std::string& ip_port, int fd);
 
   std::shared_mutex& GetDBLock() { return dbs_rw_; }
+
+  void BuildBinlogOffset(const LogOffset& offset, InnerMessage::BinlogOffset* boffset);
 
   void DBLock() {
     dbs_rw_.lock();
