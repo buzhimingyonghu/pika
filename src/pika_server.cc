@@ -692,6 +692,7 @@ bool PikaServer::SetMaster(std::string& master_ip, int master_port, bool is_cons
     role_ |= PIKA_ROLE_SLAVE;
     repl_state_ = PIKA_REPL_SHOULD_META_SYNC;
     is_consistency_ = is_consistency;
+    LOG(INFO) << "Slavecmd Master, ip_port: " << master_ip_ << ":" << master_port_<<" consistency: "<<is_consistency_;
     return true;
   }
   return false;

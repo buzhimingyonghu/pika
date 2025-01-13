@@ -36,15 +36,12 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
     response.set_code(InnerMessage::kError);
     response.set_reply("Auth with master error, Invalid masterauth");
   } else {
-    LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port();
+    LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port()<<", is_consistency: "<<is_consistency;
     std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
     bool success = g_pika_server->TryAddSlave(node.ip(), node.port(), conn->fd(), db_structs);
 
     g_pika_server->SetIsConsistency(is_consistency);
     auto master_dbs=g_pika_rm->GetSyncMasterDBs();
-    for(auto &db:master_dbs){
-      db.second->SetConsistency(is_consistency);
-    }
     
     const std::string ip_port = pstd::IpPortString(node.ip(), node.port());
     g_pika_rm->ReplServerUpdateClientConnMap(ip_port, conn->fd());
@@ -53,9 +50,14 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
       response.set_reply("Slave AlreadyExist");
     } else {
       if(g_pika_server->IsConsistency()){
-        if(!g_pika_server->role()&PIKA_ROLE_MASTER){
-          for(auto &db:master_dbs){
-            db.second->ProcessCoordination();
+        for(auto &db:master_dbs){
+          db.second->SetConsistency(is_consistency);
+          if(!g_pika_server->role()&PIKA_ROLE_MASTER){
+            Status s= db.second->ProcessCoordination();
+            if(!s.ok()){
+              response.set_code(InnerMessage::kError);
+              response.set_reply("master ProcessCoordination error");
+            }          
           }
         }
       }
@@ -192,10 +194,11 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
   const InnerMessage::BinlogOffset& c_id = try_sync_request.committed_id();
   std::string db_name = db->DBName();
   LogOffset committed_id(BinlogOffset(c_id.filenum(),c_id.offset()),LogicOffset(c_id.term(),c_id.index()));
-  if(db->ConsensusCommittedId()<committed_id){
+  if(db->GetCommittedId()<committed_id){
     try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
     LOG(WARNING) << "DB Name: " << db_name << "Slave CommittedId Greater than master";
-    return false;
+    LOG(INFO)<<"PacificA master comittedid < slave committed m_committedId: "<<db->GetCommittedId().ToString()<<" s_committedID: "<<committed_id.ToString();
+    return false; 
   } 
 
   BinlogOffset boffset;
@@ -244,7 +247,7 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
                   << ", offset: " << seeked_offset.offset;
       return false;
     }
-  g_pika_rm->BuildBinlogOffset(db->ConsensusPreparedId(),master_prepared_id);
+  g_pika_rm->BuildBinlogOffset(db->GetPreparedId(),master_prepared_id);
   }
 
 

@@ -66,7 +66,7 @@ class PikaReplClient {
                                const std::shared_ptr<net::PbConn>& conn, void* res_private_data);
   void ScheduleWriteDBTask(const std::shared_ptr<Cmd>& cmd_ptr, const std::string& db_name);
 
-  pstd::Status SendMetaSync(bool is_consistency = false);
+  pstd::Status SendMetaSync();
   pstd::Status SendDBSync(const std::string& ip, uint32_t port, const std::string& db_name,
                              const BinlogOffset& boffset, const std::string& local_ip);
   pstd::Status SendTrySync(const std::string& ip, uint32_t port, const std::string& db_name,

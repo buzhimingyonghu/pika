@@ -340,6 +340,9 @@ Status SyncMasterDB::CheckSyncTimeout(uint64_t now) {
       std::vector<WriteTask> task;
       RmNode rm_node(slave_ptr->Ip(), slave_ptr->Port(), slave_ptr->DBName(), slave_ptr->SessionId());
       WriteTask empty_task(rm_node, BinlogChip(LogOffset(), ""), LogOffset());
+      if(GetISConsistency()){
+        empty_task = WriteTask(rm_node, BinlogChip(LogOffset(), ""), LogOffset(),GetCommittedId());
+      }
       task.push_back(empty_task);
       Status s = g_pika_rm->SendSlaveBinlogChipsRequest(slave_ptr->Ip(), slave_ptr->Port(), task);
       slave_ptr->SetLastSendTime(now);
@@ -412,6 +415,13 @@ void SyncMasterDB::SetPreparedId(const LogOffset& offset){
 void SyncMasterDB::SetCommittedId(const LogOffset& offset){
   coordinator_.SetCommittedId(offset);
 }
+LogOffset SyncMasterDB::GetPreparedId(){
+  return coordinator_.GetPreparedId();
+}
+LogOffset SyncMasterDB::GetCommittedId(){
+  return coordinator_.GetCommittedId();
+}
+
 Status SyncMasterDB::AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
   return coordinator_.AppendSlaveEntries(cmd_ptr, attribute);
 }
@@ -437,7 +447,9 @@ Status SyncMasterDB::AppendCandidateBinlog(const std::string& ip, int port, cons
     std::lock_guard l(slave_ptr->slave_mu);     
     slave_ptr->slave_state = KCandidate;  
     slave_ptr->sent_offset = offset;           
-    slave_ptr->acked_offset = offset;         
+    slave_ptr->acked_offset = offset;
+    slave_ptr->target_offset =GetPreparedId();
+
     Status s = slave_ptr->InitBinlogFileReader(Logger(), offset.b_offset);
     if (!s.ok()) {
       return Status::Corruption("Init binlog file reader failed" + s.ToString());  // 如果初始化失败，返回错误状态
@@ -486,9 +498,6 @@ Status SyncMasterDB::ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_p
 }
 
 LogOffset SyncMasterDB::ConsensusCommittedIndex() { return coordinator_.committed_index(); }
-
-LogOffset SyncMasterDB::ConsensusCommittedId() { return coordinator_.CommittedId(); }
-LogOffset SyncMasterDB::ConsensusPreparedId() { return coordinator_.PreparedId(); }
 
 LogOffset SyncMasterDB::ConsensusLastIndex() { return coordinator_.MemLogger()->last_offset(); }
 
@@ -956,7 +965,7 @@ Status PikaReplicaManager::SendMetaSyncRequest() {
   Status s;
   if (time(nullptr) - g_pika_server->GetMetaSyncTimestamp() >= PIKA_META_SYNC_MAX_WAIT_TIME ||
       g_pika_server->IsFirstMetaSync()) {
-    s = pika_repl_client_->SendMetaSync(g_pika_server->IsConsistency());
+    s = pika_repl_client_->SendMetaSync();
     if (s.ok()) {
       g_pika_server->UpdateMetaSyncTimestamp();
       g_pika_server->SetFirstMetaSync(false);

@@ -210,7 +210,8 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
     LOG(WARNING) << "DB: " << db_name << " Not Found";
     return;
   }
-
+  LOG(INFO)<<"PacificA master TrySync Response master_prepared_id: "<<master_prepared_id.ToString();
+  LOG(INFO)<<"PacificA slave cur_prepared_id: "<<db->GetPreparedId().ToString();
   std::shared_ptr<SyncSlaveDB> slave_db =
       g_pika_rm->GetSyncSlaveDBByName(DBInfo(db_name));
   if (!slave_db) {
@@ -229,8 +230,8 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
     slave_db->SetReplState(ReplState::kConnected);
     // after connected, update receive time first to avoid connection timeout
     slave_db->SetLastRecvTime(pstd::NowMicros());
-    if(master_prepared_id<db->ConsensusPreparedId()){
-      if(master_prepared_id<db->ConsensusCommittedId()){
+    if(master_prepared_id<db->GetPreparedId()){
+      if(master_prepared_id<db->GetCommittedId()){
         slave_db->SetReplState(ReplState::kError);
         LOG(WARNING) << "DB: " << db_name << " master committedId > slave committedId";
         return;

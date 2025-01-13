@@ -71,8 +71,6 @@ class SyncMasterDB : public SyncDB {
   pstd::Status ConsensusProposeLog(const std::shared_ptr<Cmd>& cmd_ptr);
   pstd::Status ConsensusProcessLeaderLog(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
   LogOffset ConsensusCommittedIndex();
-  LogOffset ConsensusCommittedId();
-  LogOffset ConsensusPreparedId();
 
   LogOffset ConsensusLastIndex();
 
@@ -104,6 +102,8 @@ class SyncMasterDB : public SyncDB {
   pstd::Status ProcessCoordination(); 
   void SetPreparedId(const LogOffset& offset);
   void SetCommittedId(const LogOffset& offset);
+  LogOffset GetPreparedId();
+  LogOffset GetCommittedId();
   pstd::Status AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute);
   pstd::Status AppendCandidateBinlog(const std::string& ip, int port, const LogOffset& offset);
   pstd::Status UpdateCommittedID();

@@ -198,6 +198,7 @@ Status Binlog::Put(const std::string& item,LogOffset *cur_logoffset,std::string&
   if (!s.ok()) {
     binlog_io_error_.store(true);
   }
+  LOG(INFO)<<"PacificA  binlog filenum: "<<filenum<<", offset: "<<offset<<" ,logic_id: "<<logic_id<<" consistency: true";
   return s;
 }
 

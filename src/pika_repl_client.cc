@@ -155,7 +155,7 @@ Status PikaReplClient::Write(const std::string& ip, const int port, const std::s
 
 Status PikaReplClient::Close(const std::string& ip, const int port) { return client_thread_->Close(ip, port); }
 
-Status PikaReplClient::SendMetaSync(bool is_consistency) {
+Status PikaReplClient::SendMetaSync() {
   std::string local_ip;
   std::unique_ptr<net::NetCli> cli (net::NewRedisCli());
   cli->set_connect_timeout(1500);
@@ -180,7 +180,7 @@ Status PikaReplClient::SendMetaSync(bool is_consistency) {
   request.set_type(InnerMessage::kMetaSync);
   InnerMessage::InnerRequest::MetaSync* meta_sync = request.mutable_meta_sync();
   InnerMessage::Node* node = meta_sync->mutable_node();
-  meta_sync->set_is_consistency(is_consistency);
+  meta_sync->set_is_consistency(g_pika_server->IsConsistency());
   node->set_ip(local_ip);
   node->set_port(g_pika_server->port());
 
@@ -251,7 +251,7 @@ Status PikaReplClient::SendTrySync(const std::string& ip, uint32_t port, const s
   InnerMessage::BinlogOffset* binlog_offset = try_sync->mutable_binlog_offset();
   InnerMessage::BinlogOffset* committed_id = try_sync->mutable_committed_id();
   std::shared_ptr<SyncMasterDB> master_db =g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
-  LogOffset master_committed_id = master_db->ConsensusCommittedId();
+  LogOffset master_committed_id = master_db->GetCommittedId();
   g_pika_rm->BuildBinlogOffset(master_committed_id,committed_id);
 
   binlog_offset->set_filenum(boffset.filenum);
