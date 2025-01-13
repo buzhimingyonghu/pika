@@ -269,6 +269,11 @@ int PikaServer::role() {
   return role_;
 }
 
+int PikaServer::last_role() {
+  std::shared_lock l(state_protector_);
+  return last_role_;
+}
+
 bool PikaServer::leader_protected_mode() {
   std::shared_lock l(state_protector_);
   return leader_protected_mode_;
@@ -529,6 +534,7 @@ Status PikaServer::DoSameThingEveryDB(const TaskType& type) {
 
 void PikaServer::BecomeMaster() {
   std::lock_guard l(state_protector_);
+  last_role_ = role_;
   role_ |= PIKA_ROLE_MASTER;
 }
 
@@ -561,6 +567,7 @@ void PikaServer::DeleteSlave(int fd) {
 
   if (slave_num == 0) {
     std::lock_guard l(state_protector_);
+    last_role_ = role_;
     role_ &= ~PIKA_ROLE_MASTER;
     leader_protected_mode_ = false;  // explicitly cancel protected mode
   }
@@ -666,6 +673,7 @@ void PikaServer::RemoveMaster() {
   {
     std::lock_guard l(state_protector_);
     repl_state_ = PIKA_REPL_NO_CONNECT;
+    last_role_ = role_;
     role_ &= ~PIKA_ROLE_SLAVE;
 
     if (!master_ip_.empty() && master_port_ != -1) {
@@ -689,6 +697,7 @@ bool PikaServer::SetMaster(std::string& master_ip, int master_port, bool is_cons
   if (((role_ ^ PIKA_ROLE_SLAVE) != 0) && repl_state_ == PIKA_REPL_NO_CONNECT) {
     master_ip_ = master_ip;
     master_port_ = master_port;
+    last_role_ = role_;
     role_ |= PIKA_ROLE_SLAVE;
     repl_state_ = PIKA_REPL_SHOULD_META_SYNC;
     is_consistency_ = is_consistency;

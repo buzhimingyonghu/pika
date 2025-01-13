@@ -90,6 +90,7 @@ class PikaServer : public pstd::noncopyable {
   std::string master_ip();
   int master_port();
   int role();
+  int last_role();
   bool leader_protected_mode();
   void CheckLeaderProtectedMode();
   bool readonly(const std::string& table);
@@ -152,6 +153,10 @@ class PikaServer : public pstd::noncopyable {
   bool TryAddSlave(const std::string& ip, int64_t port, int fd, const std::vector<DBStruct>& table_structs);
   pstd::Mutex slave_mutex_;  // protect slaves_;
   std::vector<SlaveItem> slaves_;
+  int slave_size(){
+    std::lock_guard l(slave_mutex_);
+    return slaves_.size();
+  }
 
   /**
    * Sotsmgrt use
@@ -575,6 +580,7 @@ class PikaServer : public pstd::noncopyable {
   int repl_state_ = PIKA_REPL_NO_CONNECT;
   bool is_consistency_ = false;
   int role_ = PIKA_ROLE_SINGLE;
+  int last_role_ = PIKA_ROLE_SINGLE;
   int last_meta_sync_timestamp_ = 0;
   bool first_meta_sync_ = false;
   bool force_full_sync_ = false;

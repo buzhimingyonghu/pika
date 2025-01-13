@@ -263,7 +263,7 @@ class ConsensusCoordinator {
   pstd::Status CommitAppLog(const LogOffset& master_committed_id);
   pstd::Status UpdateCommittedID();
   pstd::Status ApplyBinlog(const std::shared_ptr<Cmd>& cmd_ptr);
-  pstd::Status ProcessCoordination(int role);
+  pstd::Status ProcessCoordination();
 
   LogOffset GetCommittedId() {
     std::lock_guard l(committed_id_rwlock_);

@@ -226,6 +226,11 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
     db->Logger()->GetProducerStatus(&boffset.filenum, &boffset.offset);
     slave_db->SetMasterSessionId(session_id);
     LogOffset offset(boffset, logic_last_offset);
+    LOG(INFO)<<"PacificA first binlog stable offset : "<< offset.ToString();
+    if(db->GetISConsistency()){
+      offset = db->GetPreparedId();
+      LOG(INFO)<<"PacificA first binlog preparedID offset : "<< offset.ToString();
+    }
     g_pika_rm->SendBinlogSyncAckRequest(db_name, offset, offset, true);
     slave_db->SetReplState(ReplState::kConnected);
     // after connected, update receive time first to avoid connection timeout

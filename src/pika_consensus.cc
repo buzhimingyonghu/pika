@@ -379,7 +379,7 @@ Status ConsensusCoordinator::UpdateSlave(const std::string& ip, int port, const 
       std::lock_guard l(slave_ptr->slave_mu);
       slave_ptr->acked_offset = end;
       sync_pros_.AddMatchIndex(ip, port, slave_ptr->acked_offset);
-      LOG(INFO) << "PacificA slave ip: " << ip << ",port :" << port << "slave acked_offset"
+      LOG(INFO) << "PacificA slave ip: " << ip << ", port :" << port << "slave acked_offset "
                 << slave_ptr->acked_offset.ToString();
       if (slave_ptr->acked_offset >= slave_ptr->target_offset) {
         slave_ptr->slave_state = kSlaveBinlogSync;
@@ -875,10 +875,11 @@ Status ConsensusCoordinator::AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_
 Status ConsensusCoordinator::CommitAppLog(const LogOffset& master_committed_id) {
   int index = logs_->FindOffset(logs_->FirstOffset());
   int log_size = logs_->Size();  // Cache log size
+  LOG(INFO) << "PacificA CommitAppLog master_committed_id index: " << index<<" log_size: "<<log_size<<" , m_offset: "<<master_committed_id.ToString() ;
   for (int i = index; i < log_size; ++i) {
     Log::LogItem log = logs_->At(i);
-    if (log.offset < master_committed_id) {
-      LOG(INFO) << "master_committed_id: " << master_committed_id.ToString() << ", ApplyLog: " << log.offset.ToString();
+    if (log.offset >= master_committed_id) {
+      LOG(INFO) << "PacificA master_committed_id: " << master_committed_id.ToString() << ", ApplyLog: " << log.offset.ToString();
       ApplyBinlog(log.cmd_ptr);
     }
   }
@@ -910,9 +911,10 @@ Status ConsensusCoordinator::UpdateCommittedID() {
     return Status::Error("slave_prepared_id < master_committedId");
   }
   SetCommittedId(slave_prepared_id);
+  LOG(INFO)<<"PacificA update CommittedID: "<<GetCommittedId().ToString();
   return Status::OK();
 }
-Status ConsensusCoordinator::ProcessCoordination(int role) {
+Status ConsensusCoordinator::ProcessCoordination() {
   LogOffset offset = LogOffset() ;
   Status s = stable_logger_->Logger()->GetProducerStatus(&(offset.b_offset.filenum), &(offset.b_offset.offset), &(offset.l_offset.term), &(offset.l_offset.index));
   LogOffset stable_committed_id = context_->applied_index_;
@@ -922,7 +924,7 @@ Status ConsensusCoordinator::ProcessCoordination(int role) {
     SetCommittedId(stable_committed_id);
   }
   SetPreparedId(offset);
-  if(role & PIKA_ROLE_SLAVE){
+  if(g_pika_server->role() & PIKA_ROLE_MASTER && g_pika_server->last_role() &PIKA_ROLE_SLAVE){
     Status s = CommitAppLog(GetPreparedId());
     if (!s.ok()) {
       return s;
@@ -953,11 +955,6 @@ Status ConsensusCoordinator::SendBinlog(std::shared_ptr<SlaveNode> slave_ptr, st
 
   // Check if there are new log entries that need to be sent to the slave
   if (logs_->LastOffset() >= slave_ptr->acked_offset) {
-    // Handle case where the slave's acknowledged offset is outdated
-    if (slave_ptr->acked_offset.l_offset.index + 1 < logs_->FirstOffset().l_offset.index) {
-      // If the slave is too far behind, additional logic (e.g., resending historical logs) should be implemented here
-    }
-
     // Find the index of the log entry corresponding to the slave's acknowledged offset
     int index = logs_->FindOffset(slave_ptr->acked_offset);
     if (index < logs_->Size()) {
@@ -967,7 +964,7 @@ Status ConsensusCoordinator::SendBinlog(std::shared_ptr<SlaveNode> slave_ptr, st
         slave_ptr->SetLastSendTime(pstd::NowMicros());
 
         RmNode rm_node(slave_ptr->Ip(), slave_ptr->Port(), slave_ptr->DBName(), slave_ptr->SessionId());
-        WriteTask task(rm_node, BinlogChip(item.offset, item.binlog_), slave_ptr->sent_offset, committed_id_);
+        WriteTask task(rm_node, BinlogChip(item.offset, item.binlog_), slave_ptr->sent_offset, GetCommittedId());
         tasks.emplace_back(std::move(task));
 
         slave_ptr->sent_offset = item.offset;

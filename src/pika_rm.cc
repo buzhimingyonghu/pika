@@ -425,8 +425,8 @@ LogOffset SyncMasterDB::GetCommittedId(){
 Status SyncMasterDB::AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
   return coordinator_.AppendSlaveEntries(cmd_ptr, attribute);
 }
-Status SyncMasterDB::ProcessCoordination(int role){
-  return coordinator_.ProcessCoordination(role);
+Status SyncMasterDB::ProcessCoordination(){
+  return coordinator_.ProcessCoordination();
 }
 Status SyncMasterDB::UpdateCommittedID(){
   return coordinator_.UpdateCommittedID();
@@ -444,12 +444,16 @@ Status SyncMasterDB::AppendCandidateBinlog(const std::string& ip, int port, cons
   }
 
   {
-    std::lock_guard l(slave_ptr->slave_mu);     
-    slave_ptr->slave_state = KCandidate;  
+    std::lock_guard l(slave_ptr->slave_mu);
+    if(offset >= GetPreparedId()){
+      slave_ptr->slave_state = kSlaveBinlogSync;
+    }else {
+      slave_ptr->slave_state = KCandidate;
+    }
+    LOG(INFO)<<"PacificA first binlog slave_state: "<< slave_ptr->slave_state;   
     slave_ptr->sent_offset = offset;           
     slave_ptr->acked_offset = offset;
     slave_ptr->target_offset =GetPreparedId();
-
     Status s = slave_ptr->InitBinlogFileReader(Logger(), offset.b_offset);
     if (!s.ok()) {
       return Status::Corruption("Init binlog file reader failed" + s.ToString());  // 如果初始化失败，返回错误状态

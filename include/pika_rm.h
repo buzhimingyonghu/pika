@@ -102,7 +102,7 @@ class SyncMasterDB : public SyncDB {
   bool checkFinished(const LogOffset& offset);
   void SetConsistency(bool is_consistenct);
   bool GetISConsistency();
-  pstd::Status ProcessCoordination(int role); 
+  pstd::Status ProcessCoordination(); 
   void SetPreparedId(const LogOffset& offset);
   void SetCommittedId(const LogOffset& offset);
   LogOffset GetPreparedId();

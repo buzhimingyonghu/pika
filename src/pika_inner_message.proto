@@ -135,7 +135,7 @@ message InnerResponse {
     required Slot         slot            = 2;
     optional BinlogOffset binlog_offset   = 3;
     optional int32        session_id      = 4;
-    optional BinlogOffset prepared_id     = 6;
+    optional BinlogOffset prepared_id     = 5;
   }
 
   message DBSync {

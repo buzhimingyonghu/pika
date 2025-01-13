@@ -180,7 +180,18 @@ Status PikaReplClient::SendMetaSync() {
   request.set_type(InnerMessage::kMetaSync);
   InnerMessage::InnerRequest::MetaSync* meta_sync = request.mutable_meta_sync();
   InnerMessage::Node* node = meta_sync->mutable_node();
-  meta_sync->set_is_consistency(g_pika_server->IsConsistency());
+  bool is_consistency = g_pika_server->IsConsistency();
+  meta_sync->set_is_consistency(is_consistency);
+  if(is_consistency){
+    auto master_dbs = g_pika_rm->GetSyncMasterDBs();
+    for (auto& db : master_dbs) {
+      if (g_pika_server->slaves_.size() == 0) {
+        db.second->SetConsistency(is_consistency);
+        db.second->InitContext();
+        Status s = db.second->ProcessCoordination();
+      }
+    }
+  }
   node->set_ip(local_ip);
   node->set_port(g_pika_server->port());
 

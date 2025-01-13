@@ -5,6 +5,7 @@
 
 #include "include/pika_repl_server_conn.h"
 
+#include <mutex>
 #include <glog/logging.h>
 
 #include "include/pika_rm.h"
@@ -36,26 +37,12 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
     response.set_code(InnerMessage::kError);
     response.set_reply("Auth with master error, Invalid masterauth");
   } else {
-    LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port()<<", is_consistency: "<<is_consistency;
-    auto master_dbs=g_pika_rm->GetSyncMasterDBs();
-    g_pika_server->SetIsConsistency(is_consistency);    
-    std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
-    if(g_pika_server->IsConsistency()){
-      for(auto &db:master_dbs){
-        if(g_pika_server->slaves_.size() == 0){
-          db.second->SetConsistency(is_consistency);
-          db.second->InitContext();
-          Status s= db.second->ProcessCoordination(g_pika_server->role());
-          if(!s.ok()){
-            response.set_code(InnerMessage::kError);
-            response.set_reply("master ProcessCoordination error");
-          }          
-        }
-      }
-    }
-    bool success = g_pika_server->TryAddSlave(node.ip(), node.port(), conn->fd(), db_structs);
+    LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port() << ", is_consistency: " << is_consistency;
+    int slave_size =g_pika_server->slave_size();
+    bool success = g_pika_server->TryAddSlave(node.ip(), node.port(), conn->fd(), g_pika_conf->db_structs());
     const std::string ip_port = pstd::IpPortString(node.ip(), node.port());
     g_pika_rm->ReplServerUpdateClientConnMap(ip_port, conn->fd());
+
     if (!success) {
       response.set_code(InnerMessage::kOther);
       response.set_reply("Slave AlreadyExist");
@@ -63,23 +50,37 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
       g_pika_server->BecomeMaster();
       response.set_code(InnerMessage::kOk);
       InnerMessage::InnerResponse_MetaSync* meta_sync = response.mutable_meta_sync();
+      if(is_consistency){
+        auto master_dbs = g_pika_rm->GetSyncMasterDBs();
+        g_pika_server->SetIsConsistency(is_consistency);
+        std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
+        for (auto& db : master_dbs) {
+          if (slave_size == 0) {
+            db.second->SetConsistency(is_consistency);
+            db.second->InitContext();
+            Status s = db.second->ProcessCoordination();
+            if (!s.ok()) {
+              response.set_code(InnerMessage::kError);
+              response.set_reply("master ProcessCoordination error");
+            }
+          }
+        }
+      }
+
       if (g_pika_conf->replication_id() == "") {
         std::string replication_id = pstd::getRandomHexChars(configReplicationIDSize);
         g_pika_conf->SetReplicationID(replication_id);
         g_pika_conf->ConfigRewriteReplicationID();
       }
+
       meta_sync->set_classic_mode(g_pika_conf->classic_mode());
       meta_sync->set_run_id(g_pika_conf->run_id());
       meta_sync->set_replication_id(g_pika_conf->replication_id());
-      for (const auto& db_struct : db_structs) {
+
+      for (const auto& db_struct : g_pika_conf->db_structs()) {
         InnerMessage::InnerResponse_MetaSync_DBInfo* db_info = meta_sync->add_dbs_info();
         db_info->set_db_name(db_struct.db_name);
-        /*
-         * Since the slot field is written in protobuffer,
-         * slot_num is set to the default value 1 for compatibility
-         * with older versions, but slot_num is not used
-         */
-        db_info->set_slot_num(1);
+        db_info->set_slot_num(1); // 保持兼容性
         db_info->set_db_instance_num(db_struct.db_instance_num);
       }
     }
