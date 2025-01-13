@@ -7,13 +7,12 @@
 
 #include <utility>
 
-#include "include/pika_define.h"
-#include "pstd/include/env.h"
 #include "include/pika_binlog_transverter.h"
 #include "include/pika_client_conn.h"
+#include "include/pika_define.h"
 #include "include/pika_slave_node.h"
 #include "include/pika_stable_log.h"
-
+#include "pstd/include/env.h"
 
 class Context : public pstd::noncopyable {
  public:
@@ -26,7 +25,7 @@ class Context : public pstd::noncopyable {
   void Reset(const LogOffset& offset);
 
   std::shared_mutex rwlock_;
-  LogOffset applied_index_;
+  LogOffset applied_index_ = LogOffset();
   SyncWindow applied_win_;
 
   std::string ToString() {
@@ -51,24 +50,25 @@ class SyncProgress {
   pstd::Status AddSlaveNode(const std::string& ip, int port, const std::string& db_name, int session_id);
   pstd::Status RemoveSlaveNode(const std::string& ip, int port);
   pstd::Status Update(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
-                LogOffset* committed_index);
+                      LogOffset* committed_index);
   int SlaveSize();
-  int SlaveBinlogStateSize(){
+  int SlaveBinlogStateSize() {
     std::shared_lock l(rwlock_);
     return slave_binlog_state_size;
   }
-  void AddSlaveBinlogStateSize(){
-    std::lock_guard l (rwlock_);
+  void AddSlaveBinlogStateSize() {
+    std::lock_guard l(rwlock_);
     slave_binlog_state_size++;
   }
-  void SubSlaveBinlogStateSize(){
-    std::lock_guard l (rwlock_);
+  void SubSlaveBinlogStateSize() {
+    std::lock_guard l(rwlock_);
     slave_binlog_state_size--;
   }
-  void AddMatchIndex(const std::string& ip, int port,const LogOffset& offset){
-    std::lock_guard l (rwlock_);
+  void AddMatchIndex(const std::string& ip, int port, const LogOffset& offset) {
+    std::lock_guard l(rwlock_);
     match_index_[ip + std::to_string(port)] = offset;
   }
+
  private:
   std::shared_mutex rwlock_;
   std::unordered_map<std::string, std::shared_ptr<SlaveNode>> slaves_;
@@ -130,93 +130,21 @@ class Log {
     std::string binlog_;
   };
 
-  Log() = default;
-
-  void AppendLog(const LogItem& item) {
-    std::lock_guard lock(logs_mutex_);
-    logs_.push_back(item);
-    {
-      std::lock_guard l(last_index_mu);
-      last_index_ = item.offset;
-    }
-
-  }
-
-  int Size() {
-      std::shared_lock lock(logs_mutex_);
-      return static_cast<int>(logs_.size());
-  }
-
-  LogOffset LastOffset() {
-      std::shared_lock lock(last_index_mu);
-      return last_index_;
-  }
-
-  LogOffset FirstOffset() {
-      std::shared_lock lock(first_index_mu);
-      return first_index_;
-  }
-
-  LogItem At(int index)  {
-    std::shared_lock lock(logs_mutex_);
-    return logs_.at(index);  // 使用 at() 确保边界安全
-  }
-
-  int FindOffset(const LogOffset& send_offset)  {
-    std::shared_lock lock(logs_mutex_);
-    for (size_t i = 0; i < logs_.size(); ++i) {
-      if (logs_[i].offset > send_offset) {
-        return i;
-      }
-    }
-    return static_cast<int>(logs_.size());
-  }
-
-  pstd::Status Truncate(const LogOffset& offset) {
-    std::lock_guard lock(logs_mutex_);
-    int index = FindLogIndex(offset);
-    if (index < 0) {
-      return pstd::Status::Corruption("Can't find correct index");
-    }
-    {
-      std::lock_guard lock(last_index_mu);
-      last_index_ = logs_[index].offset;
-    }
-
-    logs_.erase(logs_.begin() + index + 1, logs_.end());
-    return pstd::Status::OK();
-  }
-
-  pstd::Status TruncateFrom(const LogOffset& offset) {
-    std::lock_guard lock(logs_mutex_);
-    int index = FindLogIndex(offset);
-    if (index < 0) {
-      return pstd::Status::Corruption("Can't find correct index");
-    }
-    {
-      std::lock_guard lock(first_index_mu);
-      first_index_ = logs_[index].offset;
-    }
-
-    logs_.erase(logs_.begin(), logs_.begin() + index);
-    return pstd::Status::OK();
-  }
+  Log();
+  int Size();
+  void AppendLog(const LogItem& item);
+  LogOffset LastOffset();
+  LogOffset FirstOffset();
+  LogItem At(int index);
+  int FindOffset(const LogOffset& send_offset);
+  pstd::Status Truncate(const LogOffset& offset);
+  pstd::Status TruncateFrom(const LogOffset& offset);
 
  private:
-  int FindLogIndex(const LogOffset& offset)  {
-    for (size_t i = 0; i < logs_.size(); ++i) {
-      if (logs_[i].offset == offset) {
-        return static_cast<int>(i);
-      }
-    }
-    return -1;
-  }
-
+  int FindLogIndex(const LogOffset& offset);
   std::shared_mutex logs_mutex_;
   std::vector<LogItem> logs_;
-  std::shared_mutex last_index_mu;
   LogOffset last_index_;
-  std::shared_mutex first_index_mu;
   LogOffset first_index_;
 };
 
@@ -294,11 +222,11 @@ class ConsensusCoordinator {
 
   pstd::Status GetBinlogOffset(const BinlogOffset& start_offset, LogOffset* log_offset);
   pstd::Status GetBinlogOffset(const BinlogOffset& start_offset, const BinlogOffset& end_offset,
-                         std::vector<LogOffset>* log_offset);
-  pstd::Status FindBinlogFileNum(const std::map<uint32_t, std::string>& binlogs, uint64_t target_index, uint32_t start_filenum,
-                           uint32_t* founded_filenum);
+                               std::vector<LogOffset>* log_offset);
+  pstd::Status FindBinlogFileNum(const std::map<uint32_t, std::string>& binlogs, uint64_t target_index,
+                                 uint32_t start_filenum, uint32_t* founded_filenum);
   pstd::Status FindLogicOffsetBySearchingBinlog(const BinlogOffset& hint_offset, uint64_t target_index,
-                                          LogOffset* found_offset);
+                                                LogOffset* found_offset);
   pstd::Status FindLogicOffset(const BinlogOffset& start_offset, uint64_t target_index, LogOffset* found_offset);
   pstd::Status GetLogsBefore(const BinlogOffset& start_offset, std::vector<LogOffset>* hints);
 
@@ -322,6 +250,9 @@ class ConsensusCoordinator {
 
   // pacificA
  public:
+  void InitContext(){
+    context_->Init();
+  }
   bool checkFinished(const LogOffset& offset);
   pstd::Status AppendEntries(const std::shared_ptr<Cmd>& cmd_ptr, LogOffset& cur_logoffset);
   void SetIsConsistency(bool is_consistency);
@@ -332,7 +263,7 @@ class ConsensusCoordinator {
   pstd::Status CommitAppLog(const LogOffset& master_committed_id);
   pstd::Status UpdateCommittedID();
   pstd::Status ApplyBinlog(const std::shared_ptr<Cmd>& cmd_ptr);
-  pstd::Status ProcessCoordination();
+  pstd::Status ProcessCoordination(int role);
 
   LogOffset GetCommittedId() {
     std::lock_guard l(committed_id_rwlock_);
@@ -342,14 +273,16 @@ class ConsensusCoordinator {
     std::lock_guard l(prepared_id__rwlock_);
     return prepared_id_;
   }
-  void SetPreparedId(const LogOffset& offset){
+  void SetPreparedId(const LogOffset& offset) {
     std::lock_guard l(prepared_id__rwlock_);
-    prepared_id_ = offset; 
+    prepared_id_ = offset;
   }
-  void SetCommittedId(const LogOffset& offset){
+  void SetCommittedId(const LogOffset& offset) {
     std::lock_guard l(committed_id_rwlock_);
-    committed_id_ = offset; 
+    committed_id_ = offset;
+    context_->UpdateAppliedIndex(committed_id_);
   }
+
  private:
   pstd::Status PersistAppendBinlog(const std::shared_ptr<Cmd>& cmd_ptr, LogOffset& cur_offset);
 
@@ -357,9 +290,9 @@ class ConsensusCoordinator {
   std::shared_mutex is_consistency_rwlock_;
   bool is_consistency_ = false;
   std::shared_mutex committed_id_rwlock_;
-  LogOffset committed_id_;
+  LogOffset committed_id_ = LogOffset();
   std::shared_mutex prepared_id__rwlock_;
-  LogOffset prepared_id_;
+  LogOffset prepared_id_ = LogOffset();
   std::shared_ptr<Log> logs_;
 };
 

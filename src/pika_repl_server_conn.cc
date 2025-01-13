@@ -37,30 +37,29 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
     response.set_reply("Auth with master error, Invalid masterauth");
   } else {
     LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port()<<", is_consistency: "<<is_consistency;
-    std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
-    bool success = g_pika_server->TryAddSlave(node.ip(), node.port(), conn->fd(), db_structs);
-
-    g_pika_server->SetIsConsistency(is_consistency);
     auto master_dbs=g_pika_rm->GetSyncMasterDBs();
-    
+    g_pika_server->SetIsConsistency(is_consistency);    
+    std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
+    if(g_pika_server->IsConsistency()){
+      for(auto &db:master_dbs){
+        if(g_pika_server->slaves_.size() == 0){
+          db.second->SetConsistency(is_consistency);
+          db.second->InitContext();
+          Status s= db.second->ProcessCoordination(g_pika_server->role());
+          if(!s.ok()){
+            response.set_code(InnerMessage::kError);
+            response.set_reply("master ProcessCoordination error");
+          }          
+        }
+      }
+    }
+    bool success = g_pika_server->TryAddSlave(node.ip(), node.port(), conn->fd(), db_structs);
     const std::string ip_port = pstd::IpPortString(node.ip(), node.port());
     g_pika_rm->ReplServerUpdateClientConnMap(ip_port, conn->fd());
     if (!success) {
       response.set_code(InnerMessage::kOther);
       response.set_reply("Slave AlreadyExist");
     } else {
-      if(g_pika_server->IsConsistency()){
-        for(auto &db:master_dbs){
-          db.second->SetConsistency(is_consistency);
-          if(!g_pika_server->role()&PIKA_ROLE_MASTER){
-            Status s= db.second->ProcessCoordination();
-            if(!s.ok()){
-              response.set_code(InnerMessage::kError);
-              response.set_reply("master ProcessCoordination error");
-            }          
-          }
-        }
-      }
       g_pika_server->BecomeMaster();
       response.set_code(InnerMessage::kOk);
       InnerMessage::InnerResponse_MetaSync* meta_sync = response.mutable_meta_sync();

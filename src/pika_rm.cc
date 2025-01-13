@@ -425,8 +425,8 @@ LogOffset SyncMasterDB::GetCommittedId(){
 Status SyncMasterDB::AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_ptr, const BinlogItem& attribute) {
   return coordinator_.AppendSlaveEntries(cmd_ptr, attribute);
 }
-Status SyncMasterDB::ProcessCoordination(){
-  return coordinator_.ProcessCoordination();
+Status SyncMasterDB::ProcessCoordination(int role){
+  return coordinator_.ProcessCoordination(role);
 }
 Status SyncMasterDB::UpdateCommittedID(){
   return coordinator_.UpdateCommittedID();

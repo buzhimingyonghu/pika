@@ -96,10 +96,13 @@ class SyncMasterDB : public SyncDB {
 
   //pacificA public:
  public:
+   void InitContext(){
+    coordinator_.InitContext();
+  }
   bool checkFinished(const LogOffset& offset);
   void SetConsistency(bool is_consistenct);
   bool GetISConsistency();
-  pstd::Status ProcessCoordination(); 
+  pstd::Status ProcessCoordination(int role); 
   void SetPreparedId(const LogOffset& offset);
   void SetCommittedId(const LogOffset& offset);
   LogOffset GetPreparedId();
