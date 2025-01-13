@@ -59,10 +59,6 @@ src/build_version.cc
 .cache
 
 .idea/
-pika_slave/
-/conf/pika_copy_2.conf
-/conf/pika_copy.conf
-reset.sh
 #build
 build/
 buildtrees
