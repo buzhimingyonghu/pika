@@ -231,8 +231,9 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
         LogOffset master_prepared_id(BinlogOffset(prepared_id.filenum(),prepared_id.offset()),LogicOffset(prepared_id.term(),prepared_id.index()));
         LOG(INFO)<<"PacificA master TrySync Response master_prepared_id: "<<master_prepared_id.ToString();
         LOG(INFO)<<"PacificA slave cur_prepared_id: "<<db->GetPreparedId().ToString();
-        if(master_prepared_id<db->GetPreparedId()){
-          if(master_prepared_id<db->GetCommittedId()){
+
+        if(master_prepared_id < db->GetPreparedId()){
+          if(master_prepared_id < db->GetCommittedId()){
             slave_db->SetReplState(ReplState::kError);
             LOG(WARNING) << "DB: " << db_name << " master committedId > slave committedId";
             return;
@@ -240,10 +241,10 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
           db->SetPreparedId(master_prepared_id);
           // 向主的preparedid看齐，多余的裁剪掉
           db->Truncate(master_prepared_id);
-        }else{
-          LOG(WARNING) << "consistency  master trySync no preparedID";
-          return ;
         }
+      }else{
+        LOG(WARNING) << "consistency  master trySync no preparedID";
+        return ;
       }
     }
     g_pika_rm->SendBinlogSyncAckRequest(db_name, offset, offset, true);
