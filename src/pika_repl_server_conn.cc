@@ -225,7 +225,7 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     return false;
   }
   PikaBinlogReader reader;
-
+  LOG(INFO)<<"db->GetISConsistency(): "<<db->GetISConsistency()<<", try_sync_request.has_committed_id: "<<try_sync_request.has_committed_id();
   if(db->GetISConsistency()){
     if(try_sync_request.has_committed_id()){
       //Compare committedID offset
@@ -238,6 +238,7 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
                   << " s_committedID: " << committed_id.ToString();
         return false;
       }
+      LOG(INFO)<<"master_CommittedId >= slave committed_id";
       reader.Seek(db->Logger(), committed_id.b_offset.filenum, committed_id.b_offset.offset);
       BinlogOffset seeked_offset;
       reader.GetReaderStatus(&(seeked_offset.filenum), &(seeked_offset.offset));
