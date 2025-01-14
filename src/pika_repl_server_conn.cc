@@ -450,7 +450,8 @@ void PikaReplServerConn::HandleRemoveSlaveNodeRequest(void* arg) {
 
   std::string db_name = slot.db_name();
   std::shared_ptr<SyncMasterDB> master_db =
-      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));  if (!master_db) {
+      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  if (!master_db) {
     LOG(WARNING) << "Sync Master DB: " << db_name << ", NotFound";
   }
   Status s = master_db->RemoveSlaveNode(node.ip(), node.port());

@@ -271,8 +271,12 @@ class PikaServer : public pstd::noncopyable {
   /*
    * Disk usage statistic
    */
-  uint64_t GetDBSize() const { return disk_statistic_.db_size_.load(); }
-  uint64_t GetLogSize() const { return disk_statistic_.log_size_.load(); }
+  uint64_t GetDBSize() const {
+    return disk_statistic_.db_size_.load();
+  }
+  uint64_t GetLogSize() const {
+    return disk_statistic_.log_size_.load();
+  }
 
   /*
    * Network Statistic used

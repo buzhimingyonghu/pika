@@ -838,7 +838,6 @@ pstd::Status PikaServer::GetDumpUUID(const std::string& db_name, std::string* sn
 }
 
 pstd::Status PikaServer::GetDumpMeta(const std::string& db_name, std::vector<std::string>* fileNames, std::string* snapshot_uuid) {
-
   std::shared_ptr<DB> db = GetDB(db_name);
   if (!db) {
     LOG(WARNING) << "cannot find db for db_name " << db_name;
@@ -849,7 +848,8 @@ pstd::Status PikaServer::GetDumpMeta(const std::string& db_name, std::vector<std
 }
 
 void PikaServer::TryDBSync(const std::string& ip, int port, const std::string& db_name,
-                           int32_t top) {  std::shared_ptr<DB> db = GetDB(db_name);
+                           int32_t top) {
+  std::shared_ptr<DB> db = GetDB(db_name);
   if (!db) {
     LOG(WARNING) << "can not find DB : " << db_name
                  << ", TryDBSync Failed";
