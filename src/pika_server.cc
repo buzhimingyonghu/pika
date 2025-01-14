@@ -16,8 +16,8 @@
 #include "net/include/net_stats.h"
 #include "net/include/redis_cli.h"
 #include "pstd/include/env.h"
-#include "pstd/include/pika_codis_slot.h"
 #include "pstd/include/rsync.h"
+#include "pstd/include/pika_codis_slot.h"
 
 #include "include/pika_cmd_table_manager.h"
 #include "include/pika_dispatch_thread.h"
@@ -508,7 +508,8 @@ Status PikaServer::DoSameThingEveryDB(const TaskType& type) {
         break;
       }
       case TaskType::kPurgeLog: {
-        std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_item.second->GetDBName()));
+        std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(
+            DBInfo(db_item.second->GetDBName()));
         if (!db) {
           LOG(WARNING) << "DB: " << db_item.second->GetDBName() << ":"
                        << " Not Found.";
@@ -615,9 +616,9 @@ int32_t PikaServer::GetSlaveListString(std::string& slave_list_str) {
         if (!s.ok()) {
           continue;
         } else {
-          uint64_t lag = static_cast<uint64_t>((master_boffset.filenum - sent_slave_boffset.filenum)) *
-                             g_pika_conf->binlog_file_size() +
-                         master_boffset.offset - sent_slave_boffset.offset;
+          uint64_t lag =
+              static_cast<uint64_t>((master_boffset.filenum - sent_slave_boffset.filenum)) * g_pika_conf->binlog_file_size() +
+              master_boffset.offset - sent_slave_boffset.offset;
           tmp_stream << "(" << db->DBName() << ":" << lag << ")";
         }
       } else if (s.ok() && slave_state == SlaveState::kSlaveDbSync) {
@@ -836,8 +837,8 @@ pstd::Status PikaServer::GetDumpUUID(const std::string& db_name, std::string* sn
   return pstd::Status::OK();
 }
 
-pstd::Status PikaServer::GetDumpMeta(const std::string& db_name, std::vector<std::string>* fileNames,
-                                     std::string* snapshot_uuid) {
+pstd::Status PikaServer::GetDumpMeta(const std::string& db_name, std::vector<std::string>* fileNames, std::string* snapshot_uuid) {
+
   std::shared_ptr<DB> db = GetDB(db_name);
   if (!db) {
     LOG(WARNING) << "cannot find db for db_name " << db_name;
@@ -847,15 +848,18 @@ pstd::Status PikaServer::GetDumpMeta(const std::string& db_name, std::vector<std
   return pstd::Status::OK();
 }
 
-void PikaServer::TryDBSync(const std::string& ip, int port, const std::string& db_name, int32_t top) {
-  std::shared_ptr<DB> db = GetDB(db_name);
+void PikaServer::TryDBSync(const std::string& ip, int port, const std::string& db_name,
+                           int32_t top) {  std::shared_ptr<DB> db = GetDB(db_name);
   if (!db) {
-    LOG(WARNING) << "can not find DB : " << db_name << ", TryDBSync Failed";
+    LOG(WARNING) << "can not find DB : " << db_name
+                 << ", TryDBSync Failed";
     return;
   }
-  std::shared_ptr<SyncMasterDB> sync_db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  std::shared_ptr<SyncMasterDB> sync_db =
+      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
   if (!sync_db) {
-    LOG(WARNING) << "can not find DB: " << db_name << ", TryDBSync Failed";
+    LOG(WARNING) << "can not find DB: " << db_name
+                 << ", TryDBSync Failed";
     return;
   }
   BgSaveInfo bgsave_info = db->bgsave_info();

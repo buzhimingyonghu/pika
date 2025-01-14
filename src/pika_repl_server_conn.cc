@@ -14,8 +14,8 @@ using pstd::Status;
 extern PikaServer* g_pika_server;
 extern std::unique_ptr<PikaReplicaManager> g_pika_rm;
 
-PikaReplServerConn::PikaReplServerConn(int fd, const std::string& ip_port, net::Thread* thread,
-                                       void* worker_specific_data, net::NetMultiplexer* mpx)
+PikaReplServerConn::PikaReplServerConn(int fd, const std::string& ip_port, net::Thread* thread, void* worker_specific_data,
+                                       net::NetMultiplexer* mpx)
     : PbConn(fd, ip_port, thread, mpx) {}
 
 PikaReplServerConn::~PikaReplServerConn() = default;
@@ -125,15 +125,17 @@ void PikaReplServerConn::HandleTrySyncRequest(void* arg) {
 
   bool pre_success = true;
   response.set_type(InnerMessage::Type::kTrySync);
-  std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  std::shared_ptr<SyncMasterDB> db =
+      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
   if (!db) {
     response.set_code(InnerMessage::kError);
     response.set_reply("DB not found");
     LOG(WARNING) << "DB Name: " << db_name << "Not Found, TrySync Error";
     pre_success = false;
   } else {
-    LOG(INFO) << "Receive Trysync, Slave ip: " << node.ip() << ", Slave port:" << node.port() << ", DB: " << db_name
-              << ", filenum: " << slave_boffset.filenum() << ", pro_offset: " << slave_boffset.offset();
+    LOG(INFO) << "Receive Trysync, Slave ip: " << node.ip() << ", Slave port:" << node.port()
+              << ", DB: " << db_name << ", filenum: " << slave_boffset.filenum()
+              << ", pro_offset: " << slave_boffset.offset();
     response.set_code(InnerMessage::kOk);
   }
 
@@ -212,8 +214,7 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kSyncPointLarger);
     LOG(WARNING) << "Slave offset is larger than mine, Slave ip: " << node.ip() << ", Slave port: " << node.port()
                  << ", DB: " << db_name << ", slave filenum: " << slave_boffset.filenum()
-                 << ", slave pro_offset_: " << slave_boffset.offset() << ", local filenum: " << boffset.filenum
-                 << ", local pro_offset_: " << boffset.offset;
+                 << ", slave pro_offset_: " << slave_boffset.offset() << ", local filenum: " << boffset.filenum << ", local pro_offset_: " << boffset.offset;
     return false;
   }
 

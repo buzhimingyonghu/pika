@@ -139,7 +139,7 @@ class Log {
 
  private:
   int FindLogIndex(const LogOffset& offset);
-  pstd::Mutex logs_mutex_;
+  std::shared_mutex logs_mutex_;
   std::vector<LogItem> logs_;
   LogOffset last_index_ = LogOffset();
   LogOffset first_index_ = LogOffset();
