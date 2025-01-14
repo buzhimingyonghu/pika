@@ -350,27 +350,33 @@ Status Binlog::Produce(const pstd::Slice& item, int* temp_pro_offset) {
 
   return s;  // 返回操作状态
 }
-
+// 为 Binlog 文件追加填充数据，以确保长度对齐块大小
 Status Binlog::AppendPadding(pstd::WritableFile* file, uint64_t* len) {
+  // 如果长度小于头部大小，直接返回成功
   if (*len < kHeaderSize) {
     return Status::OK();
   }
 
   Status s;
-  char buf[kBlockSize];
+  char buf[kBlockSize];  // 定义块大小的缓冲区
   uint64_t now;
   struct timeval tv;
-  gettimeofday(&tv, nullptr);
-  now = tv.tv_sec;
+  gettimeofday(&tv, nullptr);  // 获取当前时间
+  now = tv.tv_sec;             // 当前时间的秒数
 
-  uint64_t left = *len;
+  uint64_t left = *len;  // 剩余需要填充的长度
   while (left > 0 && s.ok()) {
+    // 确定本次写入的大小，不能超过剩余长度或块大小
     uint32_t size = (left >= kBlockSize) ? kBlockSize : left;
+
+    // 如果当前块大小小于头部大小，停止填充
     if (size < kHeaderSize) {
       break;
     } else {
-      uint32_t bsize = size - kHeaderSize;
-      std::string binlog(bsize, '*');
+      uint32_t bsize = size - kHeaderSize;  // 实际数据大小
+      std::string binlog(bsize, '*');       // 创建填充数据（用 '*' 填充）
+
+      // 填充头部信息
       buf[0] = static_cast<char>(bsize & 0xff);
       buf[1] = static_cast<char>((bsize & 0xff00) >> 8);
       buf[2] = static_cast<char>(bsize >> 16);
@@ -378,65 +384,77 @@ Status Binlog::AppendPadding(pstd::WritableFile* file, uint64_t* len) {
       buf[4] = static_cast<char>((now & 0xff00) >> 8);
       buf[5] = static_cast<char>((now & 0xff0000) >> 16);
       buf[6] = static_cast<char>((now & 0xff000000) >> 24);
-      // kBadRecord here
-      buf[7] = static_cast<char>(kBadRecord);
+      buf[7] = static_cast<char>(kBadRecord);  // 表示这是一个坏记录标识符
+
+      // 将头部信息追加到文件中
       s = file->Append(pstd::Slice(buf, kHeaderSize));
       if (s.ok()) {
+        // 将填充数据追加到文件中
         s = file->Append(pstd::Slice(binlog.data(), binlog.size()));
         if (s.ok()) {
-          s = file->Flush();
-          left -= size;
+          s = file->Flush();  // 刷新文件
+          left -= size;       // 减少剩余需要填充的长度
         }
       }
     }
   }
-  *len -= left;
+
+  *len -= left;  // 更新剩余长度
   if (left != 0) {
-    LOG(WARNING) << "AppendPadding left bytes: " << left << " is less then kHeaderSize";
+    // 如果还有剩余长度小于头部大小，记录警告日志
+    LOG(WARNING) << "AppendPadding left bytes: " << left << " is less than kHeaderSize";
   }
   return s;
 }
 
+// 设置生产者状态，包括当前的文件号、偏移量、任期和逻辑索引
 Status Binlog::SetProducerStatus(uint32_t pro_num, uint64_t pro_offset, uint32_t term, uint64_t index) {
+  // 如果 Binlog 尚未打开，返回繁忙状态
   if (!opened_.load()) {
     return Status::Busy("Binlog is not open yet");
   }
 
-  std::lock_guard l(mutex_);
+  std::lock_guard l(mutex_);  // 加锁以确保线程安全
 
-  // offset smaller than the first header
+  // 如果偏移量小于 4（最小头部长度），将其设置为 0
   if (pro_offset < 4) {
     pro_offset = 0;
   }
 
+  // 重置队列
   queue_.reset();
 
+  // 删除初始化文件
   std::string init_profile = NewFileName(filename_, 0);
   if (pstd::FileExists(init_profile)) {
     pstd::DeleteFile(init_profile);
   }
 
+  // 删除目标文件
   std::string profile = NewFileName(filename_, pro_num);
   if (pstd::FileExists(profile)) {
     pstd::DeleteFile(profile);
   }
 
+  // 创建新的可写文件并初始化填充
   pstd::NewWritableFile(profile, queue_);
   Binlog::AppendPadding(queue_.get(), &pro_offset);
 
+  // 更新当前文件号
   pro_num_ = pro_num;
 
   {
+    // 更新版本信息并保存
     std::lock_guard l(version_->rwlock_);
     version_->pro_num_ = pro_num;
     version_->pro_offset_ = pro_offset;
     version_->term_ = term;
     version_->logic_id_ = index;
-    version_->StableSave();
+    version_->StableSave();  // 保存版本到磁盘
   }
 
-  InitLogFile();
-  return Status::OK();
+  InitLogFile();        // 初始化日志文件
+  return Status::OK();  // 返回成功状态
 }
 
 Status Binlog::Truncate(uint32_t pro_num, uint64_t pro_offset, uint64_t index) {

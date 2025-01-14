@@ -30,15 +30,14 @@ std::string DbSyncPath(const std::string& sync_path, const std::string& db_name)
   return sync_path + buf;
 }
 
-DB::DB(std::string db_name, const std::string& db_path,
-             const std::string& log_path)
+DB::DB(std::string db_name, const std::string& db_path, const std::string& log_path)
     : db_name_(db_name), bgsave_engine_(nullptr) {
   db_path_ = DBPath(db_path, db_name_);
   bgsave_sub_path_ = db_name;
   dbsync_path_ = DbSyncPath(g_pika_conf->db_sync_path(), db_name);
   log_path_ = DBPath(log_path, "log_" + db_name_);
-  storage_ = std::make_shared<storage::Storage>(g_pika_conf->db_instance_num(),
-      g_pika_conf->default_slot_num(), g_pika_conf->classic_mode());
+  storage_ = std::make_shared<storage::Storage>(g_pika_conf->db_instance_num(), g_pika_conf->default_slot_num(),
+                                                g_pika_conf->classic_mode());
   rocksdb::Status s = storage_->Open(g_pika_server->storage_options(), db_path_);
   pstd::CreatePath(db_path_);
   pstd::CreatePath(log_path_);
@@ -50,9 +49,7 @@ DB::DB(std::string db_name, const std::string& db_path,
   LOG(INFO) << db_name_ << " DB Success";
 }
 
-DB::~DB() {
-  StopKeyScan();
-}
+DB::~DB() { StopKeyScan(); }
 
 bool DB::WashData() {
   rocksdb::ReadOptions read_options;
@@ -202,7 +199,7 @@ void DB::LongestNotCompactionSstCompact(const storage::DataType& type) {
 }
 
 void DB::DoKeyScan(void* arg) {
-  std::unique_ptr <BgTaskArg> bg_task_arg(static_cast<BgTaskArg*>(arg));
+  std::unique_ptr<BgTaskArg> bg_task_arg(static_cast<BgTaskArg*>(arg));
   bg_task_arg->db->RunKeyScan();
 }
 
@@ -244,14 +241,14 @@ bool DB::FlushDBWithoutLock() {
   delete_suffix.append("/");
   dbpath.append(delete_suffix);
   auto rename_success = pstd::RenameFile(db_path_, dbpath);
-  storage_ = std::make_shared<storage::Storage>(g_pika_conf->db_instance_num(),
-      g_pika_conf->default_slot_num(), g_pika_conf->classic_mode());
+  storage_ = std::make_shared<storage::Storage>(g_pika_conf->db_instance_num(), g_pika_conf->default_slot_num(),
+                                                g_pika_conf->classic_mode());
   rocksdb::Status s = storage_->Open(g_pika_server->storage_options(), db_path_);
   assert(storage_);
   assert(s.ok());
   if (rename_success == -1) {
-    //the storage_->Open actually opened old RocksDB instance, so flushdb failed
-    LOG(WARNING)  << db_name_ << " FlushDB failed due to rename old db_path_ failed";
+    // the storage_->Open actually opened old RocksDB instance, so flushdb failed
+    LOG(WARNING) << db_name_ << " FlushDB failed due to rename old db_path_ failed";
     return false;
   }
   LOG(INFO) << db_name_ << " Open new db success";
@@ -355,8 +352,7 @@ bool DB::InitBgsaveEngine() {
     return false;
   }
 
-  std::shared_ptr<SyncMasterDB> db =
-      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name_));
+  std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name_));
   if (!db) {
     LOG(WARNING) << db_name_ << " not found";
     return false;
@@ -381,7 +377,8 @@ bool DB::InitBgsaveEngine() {
 }
 
 void DB::Init() {
-  cache_ = std::make_shared<PikaCache>(g_pika_conf->zset_cache_start_direction(), g_pika_conf->zset_cache_field_num_per_key());
+  cache_ = std::make_shared<PikaCache>(g_pika_conf->zset_cache_start_direction(),
+                                       g_pika_conf->zset_cache_field_num_per_key());
   // Create cache
   cache::CacheConfig cache_cfg;
   g_pika_server->CacheConfigInit(cache_cfg);
@@ -395,7 +392,7 @@ void DB::GetBgSaveMetaData(std::vector<std::string>* fileNames, std::string* sna
   for (int index = 0; index < db_instance_num; index++) {
     std::string instPath = dbPath + ((dbPath.back() != '/') ? "/" : "") + std::to_string(index);
     if (!pstd::FileExists(instPath)) {
-      continue ;
+      continue;
     }
 
     std::vector<std::string> tmpFileNames;
@@ -406,7 +403,7 @@ void DB::GetBgSaveMetaData(std::vector<std::string>* fileNames, std::string* sna
     }
 
     for (const std::string fileName : tmpFileNames) {
-      fileNames -> push_back(std::to_string(index) + "/" + fileName);
+      fileNames->push_back(std::to_string(index) + "/" + fileName);
     }
   }
   fileNames->push_back(kBgsaveInfoFile);
@@ -421,7 +418,7 @@ Status DB::GetBgSaveUUID(std::string* snapshot_uuid) {
   if (snapshot_uuid_.empty()) {
     std::string info_data;
     const std::string infoPath = bgsave_info().path + "/info";
-    //TODO: using file read function to replace rocksdb::ReadFileToString
+    // TODO: using file read function to replace rocksdb::ReadFileToString
     rocksdb::Status s = rocksdb::ReadFileToString(rocksdb::Env::Default(), infoPath, &info_data);
     if (!s.ok()) {
       LOG(WARNING) << "read dump meta info failed! error:" << s.ToString();
@@ -433,58 +430,68 @@ Status DB::GetBgSaveUUID(std::string* snapshot_uuid) {
   *snapshot_uuid = snapshot_uuid_;
   return Status::OK();
 }
-
-// Try to update master offset
-// This may happend when dbsync from master finished
-// Here we do:
-// 1, Check dbsync finished, got the new binlog offset
-// 2, Replace the old db
-// 3, Update master offset, and the PikaAuxiliaryThread cron will connect and do slaveof task with master
+// 尝试更新主节点的偏移量（master offset）
+// 当从主节点完成数据库同步时可能需要执行此操作
+// 执行以下操作：
+// 1. 检查数据库同步是否完成，并获取新的 binlog 偏移量
+// 2. 替换旧的数据库文件
+// 3. 更新主节点的偏移量，PikaAuxiliaryThread 的定时任务会连接主节点并执行 slaveof 操作
 bool DB::TryUpdateMasterOffset() {
-  std::shared_ptr<SyncSlaveDB> slave_db =
-      g_pika_rm->GetSyncSlaveDBByName(DBInfo(db_name_));
+  // 获取当前数据库对应的从节点实例（SyncSlaveDB）
+  std::shared_ptr<SyncSlaveDB> slave_db = g_pika_rm->GetSyncSlaveDBByName(DBInfo(db_name_));
   if (!slave_db) {
+    // 如果从节点不存在，记录错误日志并设置状态为错误
     LOG(ERROR) << "Slave DB: " << db_name_ << " not exist";
     slave_db->SetReplState(ReplState::kError);
     return false;
   }
 
+  // 构造同步信息文件的路径
   std::string info_path = dbsync_path_ + kBgsaveInfoFile;
   if (!pstd::FileExists(info_path)) {
-    LOG(WARNING) << "info path: " << info_path << " not exist, Slave DB:" << GetDBName() << " will restart the sync process...";
-    // May failed in RsyncClient, thus the complete snapshot dir got deleted
+    // 如果同步信息文件不存在，记录警告日志并将从节点状态设置为尝试重新连接
+    LOG(WARNING) << "info path: " << info_path << " not exist, Slave DB:" << GetDBName()
+                 << " will restart the sync process...";
     slave_db->SetReplState(ReplState::kTryConnect);
     return false;
   }
 
-  // Got new binlog offset
+  // 打开同步信息文件以读取主节点的 binlog 偏移量信息
   std::ifstream is(info_path);
   if (!is) {
+    // 如果文件打开失败，记录警告日志并设置从节点状态为错误
     LOG(WARNING) << "DB: " << db_name_ << ", Failed to open info file after db sync";
     slave_db->SetReplState(ReplState::kError);
     return false;
   }
+
+  // 变量定义，用于解析同步信息文件内容
   std::string line;
-  std::string master_ip;
-  int lineno = 0;
-  int64_t filenum = 0;
-  int64_t offset = 0;
-  int64_t term = 0;
-  int64_t index = 0;
-  int64_t tmp = 0;
-  int64_t master_port = 0;
+  std::string master_ip;    // 主节点 IP 地址
+  int lineno = 0;           // 行号
+  int64_t filenum = 0;      // binlog 文件号
+  int64_t offset = 0;       // binlog 偏移量
+  int64_t term = 0;         // 主节点的任期
+  int64_t index = 0;        // binlog 索引
+  int64_t tmp = 0;          // 临时变量
+  int64_t master_port = 0;  // 主节点端口号
+
+  // 按行读取同步信息文件内容
   while (std::getline(is, line)) {
     lineno++;
     if (lineno == 2) {
+      // 第二行是主节点 IP 地址
       master_ip = line;
     } else if (lineno > 2 && lineno < 8) {
+      // 第 3~7 行是同步信息的具体数据
       if ((pstd::string2int(line.data(), line.size(), &tmp) == 0) || tmp < 0) {
-        LOG(WARNING) << "DB: " << db_name_
-                     << ", Format of info file after db sync error, line : " << line;
+        // 如果数据格式不正确，记录警告日志并设置从节点状态为错误
+        LOG(WARNING) << "DB: " << db_name_ << ", Format of info file after db sync error, line : " << line;
         is.close();
         slave_db->SetReplState(ReplState::kError);
         return false;
       }
+      // 根据行号分别赋值
       if (lineno == 3) {
         master_port = tmp;
       } else if (lineno == 4) {
@@ -497,94 +504,108 @@ bool DB::TryUpdateMasterOffset() {
         index = tmp;
       }
     } else if (lineno > 8) {
+      // 如果文件有多余的行，说明格式错误
       LOG(WARNING) << "DB: " << db_name_ << ", Format of info file after db sync error, line : " << line;
       is.close();
       slave_db->SetReplState(ReplState::kError);
       return false;
     }
   }
-  is.close();
+  is.close();  // 关闭文件
 
+  // 记录从同步信息文件中解析出的主节点信息
   LOG(INFO) << "DB: " << db_name_ << " Information from dbsync info"
             << ",  master_ip: " << master_ip << ", master_port: " << master_port << ", filenum: " << filenum
             << ", offset: " << offset << ", term: " << term << ", index: " << index;
 
+  // 删除同步信息文件
   pstd::DeleteFile(info_path);
   if (!ChangeDb(dbsync_path_)) {
+    // 替换旧数据库文件失败，记录警告日志并设置从节点状态为错误
     LOG(WARNING) << "DB: " << db_name_ << ", Failed to change db";
     slave_db->SetReplState(ReplState::kError);
     return false;
   }
 
-  // Update master offset
-  std::shared_ptr<SyncMasterDB> master_db =
-      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name_));
+  // 更新主节点的偏移量
+  std::shared_ptr<SyncMasterDB> master_db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name_));
   if (!master_db) {
+    // 如果主节点实例不存在，记录警告日志并设置从节点状态为错误
     LOG(WARNING) << "Master DB: " << db_name_ << " not exist";
     slave_db->SetReplState(ReplState::kError);
     return false;
   }
+
+  // 设置主节点的 binlog 偏移量
   master_db->Logger()->SetProducerStatus(filenum, offset);
   slave_db->SetReplState(ReplState::kTryConnect);
 
-  //now full sync is finished, remove unfinished full sync count
+  // 完成全量同步后，移除未完成的全量同步计数
   g_pika_conf->RemoveInternalUsedUnfinishedFullSync(slave_db->DBName());
 
-  return true;
+  return true;  // 同步完成
 }
 
 void DB::PrepareRsync() {
+  // 如果同步目录已存在，则先删除
   pstd::DeleteDirIfExist(dbsync_path_);
+
+  // 为每个数据库实例创建对应的同步目录
   int db_instance_num = g_pika_conf->db_instance_num();
   for (int index = 0; index < db_instance_num; index++) {
     pstd::CreatePath(dbsync_path_ + std::to_string(index));
   }
 }
-
 bool DB::IsBgSaving() {
   std::lock_guard ml(bgsave_protector_);
   return bgsave_info_.bgsaving;
 }
-
 /*
- * Change a new db locate in new_path
- * return true when change success
- * db remain the old one if return false
+ * 更改数据库路径，定位到新的路径 new_path
+ * 成功时返回 true
+ * 如果失败，数据库路径保持不变，返回 false
  */
 bool DB::ChangeDb(const std::string& new_path) {
   std::string tmp_path(db_path_);
+  // 如果原路径以 '/' 结尾，移除 '/' 符号
   if (tmp_path.back() == '/') {
     tmp_path.resize(tmp_path.size() - 1);
   }
-  tmp_path += "_bak";
+  tmp_path += "_bak";  // 设置备份路径
+
+  // 如果备份路径存在，删除它
   pstd::DeleteDirIfExist(tmp_path);
 
+  // 加锁，确保数据库路径修改过程中线程安全
   std::lock_guard l(dbs_rw_);
   LOG(INFO) << "DB: " << db_name_ << ", Prepare change db from: " << tmp_path;
-  storage_.reset();
+  storage_.reset();  // 重置存储对象
 
+  // 尝试将当前数据库路径重命名为备份路径
   if (0 != pstd::RenameFile(db_path_, tmp_path)) {
-    LOG(WARNING) << "DB: " << db_name_
-                 << ", Failed to rename db path when change db, error: " << strerror(errno);
+    LOG(WARNING) << "DB: " << db_name_ << ", Failed to rename db path when change db, error: " << strerror(errno);
     return false;
   }
 
+  // 尝试将新的数据库路径重命名为当前路径
   if (0 != pstd::RenameFile(new_path, db_path_)) {
-    LOG(WARNING) << "DB: " << db_name_
-                 << ", Failed to rename new db path when change db, error: " << strerror(errno);
+    LOG(WARNING) << "DB: " << db_name_ << ", Failed to rename new db path when change db, error: " << strerror(errno);
     return false;
   }
 
-  storage_ = std::make_shared<storage::Storage>(g_pika_conf->db_instance_num(),
-      g_pika_conf->default_slot_num(), g_pika_conf->classic_mode());
+  // 初始化存储对象
+  storage_ = std::make_shared<storage::Storage>(g_pika_conf->db_instance_num(), g_pika_conf->default_slot_num(),
+                                                g_pika_conf->classic_mode());
+  // 打开新的数据库存储
   rocksdb::Status s = storage_->Open(g_pika_server->storage_options(), db_path_);
   assert(storage_);
   assert(s.ok());
+
+  // 删除备份路径
   pstd::DeleteDirIfExist(tmp_path);
   LOG(INFO) << "DB: " << db_name_ << ", Change db success";
   return true;
 }
-
 void DB::ClearBgsave() {
   std::lock_guard l(bgsave_protector_);
   bgsave_info_.Clear();

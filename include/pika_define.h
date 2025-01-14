@@ -160,6 +160,7 @@ enum SlaveState {
   kSlaveNotSync = 0,
   kSlaveDbSync = 1,
   kSlaveBinlogSync = 2,
+  KCandidate = 3,
 };
 
 // debug only

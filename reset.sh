@@ -1,4 +1,3 @@
-
 rm -rf ./log
 rm -rf ./db
 rm -rf ./dump

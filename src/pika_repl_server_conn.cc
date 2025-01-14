@@ -211,7 +211,6 @@ bool PikaReplServerConn::TrySyncUpdateSlaveNode(const std::shared_ptr<SyncMaster
     try_sync_response->set_session_id(session_id);
     LOG(INFO) << "DB: " << db->DBName() << " TrySync Success, Session: " << session_id;
   }
-
   return true;  // 成功
 }
 
