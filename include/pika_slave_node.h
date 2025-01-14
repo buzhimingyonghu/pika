@@ -67,9 +67,9 @@ class SlaveNode : public RmNode {
 
   BinlogSyncState b_state{kNotSync};
   SyncWindow sync_win;
-  LogOffset sent_offset;
-  LogOffset acked_offset;
-  LogOffset target_offset;
+  LogOffset sent_offset = LogOffset();
+  LogOffset acked_offset = LogOffset();
+  LogOffset target_offset = LogOffset();
 
   std::string ToStringStatus();
 

@@ -7,12 +7,12 @@
 
 #include <utility>
 
+#include "include/pika_define.h"
+#include "pstd/include/env.h"
 #include "include/pika_binlog_transverter.h"
 #include "include/pika_client_conn.h"
-#include "include/pika_define.h"
 #include "include/pika_slave_node.h"
 #include "include/pika_stable_log.h"
-#include "pstd/include/env.h"
 
 class Context : public pstd::noncopyable {
  public:
@@ -50,7 +50,7 @@ class SyncProgress {
   pstd::Status AddSlaveNode(const std::string& ip, int port, const std::string& db_name, int session_id);
   pstd::Status RemoveSlaveNode(const std::string& ip, int port);
   pstd::Status Update(const std::string& ip, int port, const LogOffset& start, const LogOffset& end,
-                      LogOffset* committed_index);
+                LogOffset* committed_index);
   int SlaveSize();
   int SlaveBinlogStateSize() {
     std::shared_lock l(rwlock_);
@@ -81,10 +81,7 @@ class MemLog {
   struct LogItem {
     LogItem(const LogOffset& _offset, std::shared_ptr<Cmd> _cmd_ptr, std::shared_ptr<PikaClientConn> _conn_ptr,
             std::shared_ptr<std::string> _resp_ptr)
-        : offset(_offset),
-          cmd_ptr(std::move(_cmd_ptr)),
-          conn_ptr(std::move(_conn_ptr)),
-          resp_ptr(std::move(_resp_ptr)) {}
+        : offset(_offset), cmd_ptr(std::move(_cmd_ptr)), conn_ptr(std::move(_conn_ptr)), resp_ptr(std::move(_resp_ptr)) {}
     LogOffset offset;
     std::shared_ptr<Cmd> cmd_ptr;
     std::shared_ptr<PikaClientConn> conn_ptr;
@@ -142,10 +139,10 @@ class Log {
 
  private:
   int FindLogIndex(const LogOffset& offset);
-  std::shared_mutex logs_mutex_;
+  pstd::Mutex logs_mutex_;
   std::vector<LogItem> logs_;
-  LogOffset last_index_;
-  LogOffset first_index_;
+  LogOffset last_index_ = LogOffset();
+  LogOffset first_index_ = LogOffset();
 };
 
 class ConsensusCoordinator {
@@ -222,11 +219,11 @@ class ConsensusCoordinator {
 
   pstd::Status GetBinlogOffset(const BinlogOffset& start_offset, LogOffset* log_offset);
   pstd::Status GetBinlogOffset(const BinlogOffset& start_offset, const BinlogOffset& end_offset,
-                               std::vector<LogOffset>* log_offset);
-  pstd::Status FindBinlogFileNum(const std::map<uint32_t, std::string>& binlogs, uint64_t target_index,
-                                 uint32_t start_filenum, uint32_t* founded_filenum);
+                         std::vector<LogOffset>* log_offset);
+  pstd::Status FindBinlogFileNum(const std::map<uint32_t, std::string>& binlogs, uint64_t target_index, uint32_t start_filenum,
+                           uint32_t* founded_filenum);
   pstd::Status FindLogicOffsetBySearchingBinlog(const BinlogOffset& hint_offset, uint64_t target_index,
-                                                LogOffset* found_offset);
+                                          LogOffset* found_offset);
   pstd::Status FindLogicOffset(const BinlogOffset& start_offset, uint64_t target_index, LogOffset* found_offset);
   pstd::Status GetLogsBefore(const BinlogOffset& start_offset, std::vector<LogOffset>* hints);
 
@@ -250,12 +247,10 @@ class ConsensusCoordinator {
 
   // pacificA
  public:
-  void InitContext(){
-    context_->Init();
-  }
+  void InitContext() { context_->Init(); }
   bool checkFinished(const LogOffset& offset);
   pstd::Status AppendEntries(const std::shared_ptr<Cmd>& cmd_ptr, LogOffset& cur_logoffset);
-  void SetIsConsistency(bool is_consistency);
+  void SetConsistency(bool is_consistency);
   bool GetISConsistency();
   pstd::Status SendBinlog(std::shared_ptr<SlaveNode> slave_ptr, std::string db_name);
   pstd::Status Truncate(const LogOffset& offset);

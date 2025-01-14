@@ -857,7 +857,7 @@ void Cmd::ProcessCommand(const HintKeys& hint_keys) {
     }
   }
 }
-void Cmd::InternalProcessCommand(const HintKeys& hint_keys, bool is_consistency) {
+void Cmd::InternalProcessCommand(const HintKeys& hint_keys) {
   pstd::lock::MultiRecordLock record_lock(db_->LockMgr());
   if (is_write()) {
     record_lock.Lock(current_key());
@@ -870,7 +870,7 @@ void Cmd::InternalProcessCommand(const HintKeys& hint_keys, bool is_consistency)
   if (!IsSuspend()) {
     db_->DBLockShared();
   }
-  if(is_consistency){
+  if(g_pika_server->IsConsistency()){
     DoBinlog();
     if(res().ok()){
         DoCommand(hint_keys);

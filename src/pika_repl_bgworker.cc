@@ -151,10 +151,14 @@ void PikaReplBgWorker::HandleBGWorkerWriteBinlog(void* arg) {
       slave_db->SetReplState(ReplState::kTryConnect);
       return;
     } 
-    const InnerMessage::BinlogOffset& committed_id = binlog_res.committed_id();
-    LogOffset master_committed_id(BinlogOffset(committed_id.filenum(),committed_id.offset()),LogicOffset(committed_id.term(),committed_id.index()));
-    std::shared_ptr<SyncMasterDB> db =g_pika_rm->GetSyncMasterDBByName(DBInfo(worker->db_name_));
+    db = g_pika_rm->GetSyncMasterDBByName(DBInfo(worker->db_name_));
+    if (!db) {
+       LOG(WARNING) << "DB " << worker->db_name_ << " Not Found";
+       return;
+     }
     if(db->GetISConsistency()){
+      const InnerMessage::BinlogOffset& committed_id = binlog_res.committed_id();
+      LogOffset master_committed_id(BinlogOffset(committed_id.filenum(),committed_id.offset()),LogicOffset(committed_id.term(),committed_id.index()));
       Status s= db->CommitAppLog(master_committed_id);
       if(!s.ok()){
         return;
@@ -210,6 +214,7 @@ int PikaReplBgWorker::HandleWriteBinlog(net::RedisParser* parser, const net::Red
       g_pika_rm->GetSyncMasterDBByName(DBInfo(worker->db_name_));
   if (!db) {
     LOG(WARNING) << worker->db_name_ << "Not found.";
+    return -1;
   }
   if(db->GetISConsistency()){
     db->AppendSlaveEntries(c_ptr, worker->binlog_item_);

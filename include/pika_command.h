@@ -589,7 +589,7 @@ class Cmd : public std::enable_shared_from_this<Cmd> {
   // enable copy, used default copy
   // Cmd(const Cmd&);
   void ProcessCommand(const HintKeys& hint_key = HintKeys());
-  void InternalProcessCommand(const HintKeys& hint_key,bool is_consistency = false);
+  void InternalProcessCommand(const HintKeys& hint_key);
   void DoCommand(const HintKeys& hint_key);
   bool DoReadCommandInCache();
   void LogCommand() const;

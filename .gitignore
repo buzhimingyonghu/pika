@@ -59,6 +59,11 @@ src/build_version.cc
 .cache
 
 .idea/
+<<<<<<< HEAD
+=======
+
+
+>>>>>>> myrepo/consistency
 #build
 build/
 buildtrees

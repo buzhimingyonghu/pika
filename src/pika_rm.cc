@@ -231,24 +231,21 @@ Status SyncMasterDB::GetSlaveState(const std::string& ip, int port, SlaveState* 
 Status SyncMasterDB::WakeUpSlaveBinlogSync() {
     std::unordered_map<std::string, std::shared_ptr<SlaveNode>> slaves = GetAllSlaveNodes();
     std::vector<std::shared_ptr<SlaveNode>> to_del;
-
     for (auto& slave_iter : slaves) {
         std::shared_ptr<SlaveNode> slave_ptr = slave_iter.second;
-
         std::lock_guard l(slave_ptr->slave_mu);
-
         if (slave_ptr->sent_offset == slave_ptr->acked_offset) {
-            Status s;
-            if (coordinator_.GetISConsistency()) {
-                s = coordinator_.SendBinlog(slave_ptr, db_info_.db_name_);
-            } else {
-                s = ReadBinlogFileToWq(slave_ptr);
-            }
-            if (!s.ok()) {
-                to_del.push_back(slave_ptr);
-                LOG(WARNING) << "WakeUpSlaveBinlogSync failed, marking for deletion: "
+          Status s;
+          if (coordinator_.GetISConsistency()) {
+            s = coordinator_.SendBinlog(slave_ptr, db_info_.db_name_);
+          } else {
+            s = ReadBinlogFileToWq(slave_ptr);
+          }
+          if (!s.ok()) {
+            to_del.push_back(slave_ptr);
+            LOG(WARNING) << "WakeUpSlaveBinlogSync failed, marking for deletion: "
                              << slave_ptr->ToStringStatus() << " - " << s.ToString();
-            }
+          }
         }
     }
 
@@ -404,10 +401,10 @@ bool SyncMasterDB::checkFinished(const LogOffset& offset){
   return coordinator_.checkFinished(offset);
 }
 void SyncMasterDB::SetConsistency(bool is_consistenct){
-  coordinator_.SetIsConsistency(is_consistenct);
+  coordinator_.SetConsistency(is_consistenct);
 }
 bool SyncMasterDB::GetISConsistency(){
-  coordinator_.GetISConsistency();
+  return coordinator_.GetISConsistency();
 }
 void SyncMasterDB::SetPreparedId(const LogOffset& offset){
   coordinator_.SetPreparedId(offset);

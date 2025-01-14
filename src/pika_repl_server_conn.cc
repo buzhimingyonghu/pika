@@ -5,7 +5,6 @@
 
 #include "include/pika_repl_server_conn.h"
 
-#include <mutex>
 #include <glog/logging.h>
 
 #include "include/pika_rm.h"
@@ -15,8 +14,8 @@ using pstd::Status;
 extern PikaServer* g_pika_server;
 extern std::unique_ptr<PikaReplicaManager> g_pika_rm;
 
-PikaReplServerConn::PikaReplServerConn(int fd, const std::string& ip_port, net::Thread* thread, void* worker_specific_data,
-                                       net::NetMultiplexer* mpx)
+PikaReplServerConn::PikaReplServerConn(int fd, const std::string& ip_port, net::Thread* thread,
+                                       void* worker_specific_data, net::NetMultiplexer* mpx)
     : PbConn(fd, ip_port, thread, mpx) {}
 
 PikaReplServerConn::~PikaReplServerConn() = default;
@@ -37,8 +36,10 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
     response.set_code(InnerMessage::kError);
     response.set_reply("Auth with master error, Invalid masterauth");
   } else {
-    LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port() << ", is_consistency: " << is_consistency;
-    int slave_size =g_pika_server->slave_size();
+    LOG(INFO) << "Receive MetaSync, Slave ip: " << node.ip() << ", Slave port:" << node.port()
+              << ", is_consistency: " << is_consistency;
+    std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
+    int slave_size = g_pika_server->slave_size();
     bool success = g_pika_server->TryAddSlave(node.ip(), node.port(), conn->fd(), g_pika_conf->db_structs());
     const std::string ip_port = pstd::IpPortString(node.ip(), node.port());
     g_pika_rm->ReplServerUpdateClientConnMap(ip_port, conn->fd());
@@ -50,10 +51,9 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
       g_pika_server->BecomeMaster();
       response.set_code(InnerMessage::kOk);
       InnerMessage::InnerResponse_MetaSync* meta_sync = response.mutable_meta_sync();
-      if(is_consistency){
+      if (is_consistency) {
         auto master_dbs = g_pika_rm->GetSyncMasterDBs();
-        g_pika_server->SetIsConsistency(is_consistency);
-        std::vector<DBStruct> db_structs = g_pika_conf->db_structs();
+        g_pika_server->SetConsistency(is_consistency);
         for (auto& db : master_dbs) {
           if (slave_size == 0) {
             db.second->SetConsistency(is_consistency);
@@ -77,10 +77,15 @@ void PikaReplServerConn::HandleMetaSyncRequest(void* arg) {
       meta_sync->set_run_id(g_pika_conf->run_id());
       meta_sync->set_replication_id(g_pika_conf->replication_id());
 
-      for (const auto& db_struct : g_pika_conf->db_structs()) {
+      for (const auto& db_struct : db_structs) {
         InnerMessage::InnerResponse_MetaSync_DBInfo* db_info = meta_sync->add_dbs_info();
         db_info->set_db_name(db_struct.db_name);
-        db_info->set_slot_num(1); // 保持兼容性
+        /*
+         * Since the slot field is written in protobuffer,
+         * slot_num is set to the default value 1 for compatibility
+         * with older versions, but slot_num is not used
+         */
+        db_info->set_slot_num(1);
         db_info->set_db_instance_num(db_struct.db_instance_num);
       }
     }
@@ -120,17 +125,15 @@ void PikaReplServerConn::HandleTrySyncRequest(void* arg) {
 
   bool pre_success = true;
   response.set_type(InnerMessage::Type::kTrySync);
-  std::shared_ptr<SyncMasterDB> db =
-      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  std::shared_ptr<SyncMasterDB> db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
   if (!db) {
     response.set_code(InnerMessage::kError);
     response.set_reply("DB not found");
     LOG(WARNING) << "DB Name: " << db_name << "Not Found, TrySync Error";
     pre_success = false;
   } else {
-    LOG(INFO) << "Receive Trysync, Slave ip: " << node.ip() << ", Slave port:" << node.port()
-              << ", DB: " << db_name << ", filenum: " << slave_boffset.filenum()
-              << ", pro_offset: " << slave_boffset.offset();
+    LOG(INFO) << "Receive Trysync, Slave ip: " << node.ip() << ", Slave port:" << node.port() << ", DB: " << db_name
+              << ", filenum: " << slave_boffset.filenum() << ", pro_offset: " << slave_boffset.offset();
     response.set_code(InnerMessage::kOk);
   }
 
@@ -191,15 +194,7 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
                                             InnerMessage::InnerResponse::TrySync* try_sync_response) {
   const InnerMessage::Node& node = try_sync_request.node();
   const InnerMessage::BinlogOffset& slave_boffset = try_sync_request.binlog_offset();
-  const InnerMessage::BinlogOffset& c_id = try_sync_request.committed_id();
   std::string db_name = db->DBName();
-  LogOffset committed_id(BinlogOffset(c_id.filenum(),c_id.offset()),LogicOffset(c_id.term(),c_id.index()));
-  if(db->GetCommittedId()<committed_id){
-    try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
-    LOG(WARNING) << "DB Name: " << db_name << "Slave CommittedId Greater than master";
-    LOG(INFO)<<"PacificA master comittedid < slave committed m_committedId: "<<db->GetCommittedId().ToString()<<" s_committedID: "<<committed_id.ToString();
-    return false; 
-  } 
 
   BinlogOffset boffset;
   Status s = db->Logger()->GetProducerStatus(&(boffset.filenum), &(boffset.offset));
@@ -209,9 +204,6 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     return false;
   }
   InnerMessage::BinlogOffset* master_db_boffset = try_sync_response->mutable_binlog_offset();
-  InnerMessage::BinlogOffset* master_prepared_id = try_sync_response->mutable_prepared_id();
-  g_pika_rm->BuildBinlogOffset(LogOffset(),master_prepared_id);
-  
   master_db_boffset->set_filenum(boffset.filenum);
   master_db_boffset->set_offset(boffset.offset);
 
@@ -220,7 +212,8 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kSyncPointLarger);
     LOG(WARNING) << "Slave offset is larger than mine, Slave ip: " << node.ip() << ", Slave port: " << node.port()
                  << ", DB: " << db_name << ", slave filenum: " << slave_boffset.filenum()
-                 << ", slave pro_offset_: " << slave_boffset.offset() << ", local filenum: " << boffset.filenum << ", local pro_offset_: " << boffset.offset;
+                 << ", slave pro_offset_: " << slave_boffset.offset() << ", local filenum: " << boffset.filenum
+                 << ", local pro_offset_: " << boffset.offset;
     return false;
   }
 
@@ -231,25 +224,41 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
     return false;
   }
   PikaBinlogReader reader;
+
   if(db->GetISConsistency()){
-    reader.Seek(db->Logger(), committed_id.b_offset.filenum, committed_id.b_offset.offset);
-    BinlogOffset seeked_offset;
-    reader.GetReaderStatus(&(seeked_offset.filenum), &(seeked_offset.offset));
-    if (seeked_offset.filenum != committed_id.b_offset.filenum || seeked_offset.offset != committed_id.b_offset.offset) {
+    if(try_sync_request.has_committed_id()){
+      //Compare committedID offset
+      const InnerMessage::BinlogOffset& slave_committed_id = try_sync_request.committed_id();
+      LogOffset committed_id(BinlogOffset(slave_committed_id.filenum(), slave_committed_id.offset()), LogicOffset(slave_committed_id.term(), slave_committed_id.index()));
+      if (db->GetCommittedId() < committed_id) {
+        try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
+        LOG(WARNING) << "DB Name: " << db_name << "Slave CommittedId Greater than master";
+        LOG(INFO) << "PacificA master comittedid < slave committed m_committedId: " << db->GetCommittedId().ToString()
+                  << " s_committedID: " << committed_id.ToString();
+        return false;
+      }
+      reader.Seek(db->Logger(), committed_id.b_offset.filenum, committed_id.b_offset.offset);
+      BinlogOffset seeked_offset;
+      reader.GetReaderStatus(&(seeked_offset.filenum), &(seeked_offset.offset));
+      if (seeked_offset.filenum != committed_id.b_offset.filenum ||
+          seeked_offset.offset != committed_id.b_offset.offset) {
+        try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
+        LOG(WARNING) << "Slave offset is not a start point of cur log, "
+                    << "Slave ip: " << node.ip() << ", Slave port: " << node.port() << ", DB: " << db_name
+                    << ". Committed ID: filenum: " << committed_id.b_offset.filenum
+                    << ", offset: " << committed_id.b_offset.offset
+                    << ". Closest start point: filenum: " << seeked_offset.filenum
+                    << ", offset: " << seeked_offset.offset;
+        return false;
+      }
+      InnerMessage::BinlogOffset* master_prepared_id = try_sync_response->mutable_prepared_id();
+      g_pika_rm->BuildBinlogOffset(db->GetPreparedId(), master_prepared_id);
+    }else{
+      LOG(WARNING) << "TrySync no slave commmittedID";
       try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
-      LOG(WARNING) << "Slave offset is not a start point of cur log, "
-                  << "Slave ip: " << node.ip() 
-                  << ", Slave port: " << node.port() 
-                  << ", DB: " << db_name
-                  << ". Committed ID: filenum: " << committed_id.b_offset.filenum 
-                  << ", offset: " << committed_id.b_offset.offset
-                  << ". Closest start point: filenum: " << seeked_offset.filenum
-                  << ", offset: " << seeked_offset.offset;
       return false;
     }
-  g_pika_rm->BuildBinlogOffset(db->GetPreparedId(),master_prepared_id);
   }
-
 
   reader.Seek(db->Logger(), slave_boffset.filenum(), slave_boffset.offset());
   BinlogOffset seeked_offset;
@@ -257,8 +266,8 @@ bool PikaReplServerConn::TrySyncOffsetCheck(const std::shared_ptr<SyncMasterDB>&
   if (seeked_offset.filenum != slave_boffset.filenum() || seeked_offset.offset != slave_boffset.offset()) {
     try_sync_response->set_reply_code(InnerMessage::InnerResponse::TrySync::kError);
     LOG(WARNING) << "Slave offset is not a start point of cur log, Slave ip: " << node.ip()
-                 << ", Slave port: " << node.port() << ", DB: " << db_name << " closest start point, filenum: "
-                 << seeked_offset.filenum << ", offset: " << seeked_offset.offset;
+                 << ", Slave port: " << node.port() << ", DB: " << db_name
+                 << " closest start point, filenum: " << seeked_offset.filenum << ", offset: " << seeked_offset.offset;
     return false;
   }
   return true;
@@ -290,8 +299,7 @@ void PikaReplServerConn::HandleDBSyncRequest(void* arg) {
 
   LOG(INFO) << "Handle DBSync Request";
   bool prior_success = true;
-  std::shared_ptr<SyncMasterDB> master_db =
-      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  std::shared_ptr<SyncMasterDB> master_db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
   if (!master_db) {
     LOG(WARNING) << "Sync Master DB: " << db_name << ", NotFound";
     prior_success = false;
@@ -368,10 +376,9 @@ void PikaReplServerConn::HandleBinlogSyncRequest(void* arg) {
   LogOffset range_start(b_range_start, l_range_start);
   LogOffset range_end(b_range_end, l_range_end);
 
-  std::shared_ptr<SyncMasterDB> master_db =
-      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  std::shared_ptr<SyncMasterDB> master_db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
   if (!master_db) {
-    LOG(WARNING) << "Sync Master DB: " << db_name <<  ", NotFound";
+    LOG(WARNING) << "Sync Master DB: " << db_name << ", NotFound";
     return;
   }
 
@@ -385,7 +392,8 @@ void PikaReplServerConn::HandleBinlogSyncRequest(void* arg) {
 
   Status s = master_db->SetLastRecvTime(node.ip(), node.port(), pstd::NowMicros());
   if (!s.ok()) {
-    LOG(WARNING) << "SetMasterLastRecvTime failed " << node.ip() << ":" << node.port() << ", " << db_name << " " << s.ToString();
+    LOG(WARNING) << "SetMasterLastRecvTime failed " << node.ip() << ":" << node.port() << ", " << db_name << " "
+                 << s.ToString();
     conn->NotifyClose();
     return;
   }
@@ -396,9 +404,9 @@ void PikaReplServerConn::HandleBinlogSyncRequest(void* arg) {
       conn->NotifyClose();
       return;
     }
-    if(master_db->GetISConsistency()){
+    if (master_db->GetISConsistency()) {
       Status s = master_db->AppendCandidateBinlog(node.ip(), node.port(), range_start);
-    }else{
+    } else {
       Status s = master_db->ActivateSlaveBinlogSync(node.ip(), node.port(), range_start);
     }
     if (!s.ok()) {
@@ -420,7 +428,6 @@ void PikaReplServerConn::HandleBinlogSyncRequest(void* arg) {
     conn->NotifyClose();
     return;
   }
-  
 
   g_pika_server->SignalAuxiliary();
 }
@@ -439,8 +446,7 @@ void PikaReplServerConn::HandleRemoveSlaveNodeRequest(void* arg) {
   const InnerMessage::Slot& slot = remove_slave_node_req.slot();
 
   std::string db_name = slot.db_name();
-  std::shared_ptr<SyncMasterDB> master_db =
-      g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
+  std::shared_ptr<SyncMasterDB> master_db = g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
   if (!master_db) {
     LOG(WARNING) << "Sync Master DB: " << db_name << ", NotFound";
   }
@@ -450,7 +456,7 @@ void PikaReplServerConn::HandleRemoveSlaveNodeRequest(void* arg) {
   response.set_code(InnerMessage::kOk);
   response.set_type(InnerMessage::Type::kRemoveSlaveNode);
   InnerMessage::InnerResponse::RemoveSlaveNode* remove_slave_node_response = response.add_remove_slave_node();
-  InnerMessage::Slot* db_response = remove_slave_node_response->mutable_slot ();
+  InnerMessage::Slot* db_response = remove_slave_node_response->mutable_slot();
   db_response->set_db_name(db_name);
   /*
    * Since the slot field is written in protobuffer,
@@ -480,32 +486,27 @@ int PikaReplServerConn::DealMessage() {
   }
   switch (req->type()) {
     case InnerMessage::kMetaSync: {
-      auto task_arg =
-          new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
+      auto task_arg = new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
       g_pika_rm->ScheduleReplServerBGTask(&PikaReplServerConn::HandleMetaSyncRequest, task_arg);
       break;
     }
     case InnerMessage::kTrySync: {
-      auto task_arg =
-          new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
+      auto task_arg = new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
       g_pika_rm->ScheduleReplServerBGTask(&PikaReplServerConn::HandleTrySyncRequest, task_arg);
       break;
     }
     case InnerMessage::kDBSync: {
-      auto task_arg =
-          new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
+      auto task_arg = new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
       g_pika_rm->ScheduleReplServerBGTask(&PikaReplServerConn::HandleDBSyncRequest, task_arg);
       break;
     }
     case InnerMessage::kBinlogSync: {
-      auto task_arg =
-          new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
+      auto task_arg = new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
       g_pika_rm->ScheduleReplServerBGTask(&PikaReplServerConn::HandleBinlogSyncRequest, task_arg);
       break;
     }
     case InnerMessage::kRemoveSlaveNode: {
-      auto task_arg =
-          new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
+      auto task_arg = new ReplServerTaskArg(req, std::dynamic_pointer_cast<PikaReplServerConn>(shared_from_this()));
       g_pika_rm->ScheduleReplServerBGTask(&PikaReplServerConn::HandleRemoveSlaveNodeRequest, task_arg);
       break;
     }
