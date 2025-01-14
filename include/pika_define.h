@@ -164,7 +164,7 @@ enum SlaveState {
 };
 
 // debug only
-const std::string SlaveStateMsg[] = {"SlaveNotSync", "SlaveDbSync", "SlaveBinlogSync"};
+const std::string SlaveStateMsg[] = {"SlaveNotSync", "SlaveDbSync", "SlaveBinlogSync", "Candidate"};
 
 enum BinlogSyncState {
   kNotSync = 0,

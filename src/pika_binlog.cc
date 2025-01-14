@@ -170,7 +170,7 @@ Status Binlog::GetProducerStatus(uint32_t* filenum, uint64_t* pro_offset, uint32
 
   return Status::OK();
 }
-Status Binlog::Put(const std::string& item,LogOffset *cur_logoffset,std::string& binlog){
+Status Binlog::Put(const std::string& item, LogOffset *cur_logoffset,std::string& binlog){
   if (!opened_.load()) {
     return Status::Busy("Binlog is not open yet");
   }

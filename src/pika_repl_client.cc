@@ -260,10 +260,12 @@ Status PikaReplClient::SendTrySync(const std::string& ip, uint32_t port, const s
   db->set_slot_id(0);
 
   InnerMessage::BinlogOffset* binlog_offset = try_sync->mutable_binlog_offset();
-  InnerMessage::BinlogOffset* committed_id = try_sync->mutable_committed_id();
   std::shared_ptr<SyncMasterDB> master_db =g_pika_rm->GetSyncMasterDBByName(DBInfo(db_name));
-  LogOffset master_committed_id = master_db->GetCommittedId();
-  g_pika_rm->BuildBinlogOffset(master_committed_id,committed_id);
+  if(master_db->GetISConsistency()){
+    InnerMessage::BinlogOffset* committed_id = try_sync->mutable_committed_id();
+    LogOffset master_committed_id = master_db->GetCommittedId();
+    g_pika_rm->BuildBinlogOffset(master_committed_id,committed_id);
+  }
 
   binlog_offset->set_filenum(boffset.filenum);
   binlog_offset->set_offset(boffset.offset);

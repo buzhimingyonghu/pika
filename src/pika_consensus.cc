@@ -22,7 +22,7 @@ extern std::unique_ptr<PikaCmdTableManager> g_pika_cmd_table_manager;
 
 /* Context */
 
-Context::Context(std::string path) :  path_(std::move(path)) {}
+Context::Context(std::string path) : path_(std::move(path)) {}
 
 Status Context::StableSave() {
   char* p = save_->GetData();
@@ -217,8 +217,7 @@ int MemLog::InternalFindLogByBinlogOffset(const LogOffset& offset) {
 
 /* ConsensusCoordinator */
 
-ConsensusCoordinator::ConsensusCoordinator(const std::string& db_name)
-    : db_name_(db_name) {
+ConsensusCoordinator::ConsensusCoordinator(const std::string& db_name) : db_name_(db_name) {
   std::string db_log_path = g_pika_conf->log_path() + "log_" + db_name + "/";
   std::string log_path = db_log_path;
   context_ = std::make_shared<Context>(log_path + kContext);
@@ -238,8 +237,8 @@ void ConsensusCoordinator::Init() {
   // load term_
   term_ = stable_logger_->Logger()->term();
 
-  LOG(INFO) << DBInfo(db_name_).ToString() << "Restore applied index "
-            << context_->applied_index_.ToString() << " current term " << term_;
+  LOG(INFO) << DBInfo(db_name_).ToString() << "Restore applied index " << context_->applied_index_.ToString()
+            << " current term " << term_;
   if (committed_index_ == LogOffset()) {
     return;
   }
@@ -301,8 +300,7 @@ Status ConsensusCoordinator::Reset(const LogOffset& offset) {
   Status s = stable_logger_->Logger()->SetProducerStatus(offset.b_offset.filenum, offset.b_offset.offset,
                                                          offset.l_offset.term, offset.l_offset.index);
   if (!s.ok()) {
-    LOG(WARNING) << DBInfo(db_name_).ToString() << "Consensus reset status failed "
-                 << s.ToString();
+    LOG(WARNING) << DBInfo(db_name_).ToString() << "Consensus reset status failed " << s.ToString();
     return s;
   }
 
@@ -318,7 +316,8 @@ Status ConsensusCoordinator::ProposeLog(const std::shared_ptr<Cmd>& cmd_ptr) {
   std::vector<std::string> keys = cmd_ptr->current_key();
   // slotkey shouldn't add binlog
   if (cmd_ptr->name() == kCmdNameSAdd && !keys.empty() &&
-      (keys[0].compare(0, SlotKeyPrefix.length(), SlotKeyPrefix) == 0 || keys[0].compare(0, SlotTagPrefix.length(), SlotTagPrefix) == 0)) {
+      (keys[0].compare(0, SlotKeyPrefix.length(), SlotKeyPrefix) == 0 ||
+       keys[0].compare(0, SlotTagPrefix.length(), SlotTagPrefix) == 0)) {
     return Status::OK();
   }
 
@@ -794,7 +793,7 @@ Status ConsensusCoordinator::FollowerNegotiate(const std::vector<LogOffset>& hin
 }
 // pacificA public:
 
-void ConsensusCoordinator::SetIsConsistency(bool is_consistency) {
+void ConsensusCoordinator::SetConsistency(bool is_consistency) {
   std::lock_guard l(is_consistency_rwlock_);
   is_consistency_ = is_consistency;
 }
@@ -875,11 +874,13 @@ Status ConsensusCoordinator::AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_
 Status ConsensusCoordinator::CommitAppLog(const LogOffset& master_committed_id) {
   int index = logs_->FindOffset(logs_->FirstOffset());
   int log_size = logs_->Size();  // Cache log size
-  LOG(INFO) << "PacificA CommitAppLog master_committed_id index: " << index<<" log_size: "<<log_size<<" , m_offset: "<<master_committed_id.ToString() ;
+  LOG(INFO) << "PacificA CommitAppLog master_committed_id index: " << index << " log_size: " << log_size
+            << " , m_offset: " << master_committed_id.ToString();
   for (int i = index; i < log_size; ++i) {
     Log::LogItem log = logs_->At(i);
     if (log.offset >= master_committed_id) {
-      LOG(INFO) << "PacificA master_committed_id: " << master_committed_id.ToString() << ", ApplyLog: " << log.offset.ToString();
+      LOG(INFO) << "PacificA master_committed_id: " << master_committed_id.ToString()
+                << ", ApplyLog: " << log.offset.ToString();
       ApplyBinlog(log.cmd_ptr);
     }
   }
@@ -911,20 +912,21 @@ Status ConsensusCoordinator::UpdateCommittedID() {
     return Status::Error("slave_prepared_id < master_committedId");
   }
   SetCommittedId(slave_prepared_id);
-  LOG(INFO)<<"PacificA update CommittedID: "<<GetCommittedId().ToString();
+  LOG(INFO) << "PacificA update CommittedID: " << GetCommittedId().ToString();
   return Status::OK();
 }
 Status ConsensusCoordinator::ProcessCoordination() {
-  LogOffset offset = LogOffset() ;
-  Status s = stable_logger_->Logger()->GetProducerStatus(&(offset.b_offset.filenum), &(offset.b_offset.offset), &(offset.l_offset.term), &(offset.l_offset.index));
+  LogOffset offset = LogOffset();
+  Status s = stable_logger_->Logger()->GetProducerStatus(&(offset.b_offset.filenum), &(offset.b_offset.offset),
+                                                         &(offset.l_offset.term), &(offset.l_offset.index));
   LogOffset stable_committed_id = context_->applied_index_;
-  if(stable_committed_id == LogOffset()|| stable_committed_id.l_offset.index+ 10 < offset.l_offset.index){
+  if (stable_committed_id == LogOffset() || stable_committed_id.l_offset.index + 10 < offset.l_offset.index) {
     SetCommittedId(offset);
-  }else{
+  } else {
     SetCommittedId(stable_committed_id);
   }
   SetPreparedId(offset);
-  if(g_pika_server->role() & PIKA_ROLE_MASTER && g_pika_server->last_role() &PIKA_ROLE_SLAVE){
+  if (g_pika_server->role() & PIKA_ROLE_MASTER && g_pika_server->last_role() & PIKA_ROLE_SLAVE) {
     Status s = CommitAppLog(GetPreparedId());
     if (!s.ok()) {
       return s;

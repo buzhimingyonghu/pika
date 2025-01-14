@@ -18,13 +18,13 @@
 #include <memory>
 #include <set>
 
-#include "src/cache/include/config.h"
 #include "net/include/bg_thread.h"
 #include "net/include/net_pubsub.h"
 #include "net/include/thread_pool.h"
 #include "pstd/include/pstd_mutex.h"
 #include "pstd/include/pstd_status.h"
 #include "pstd/include/pstd_string.h"
+#include "src/cache/include/config.h"
 #include "storage/backupable.h"
 #include "storage/storage.h"
 
@@ -101,9 +101,7 @@ class PikaServer : public pstd::noncopyable {
   void SetDispatchQueueLimit(int queue_limit);
   void SetSlowCmdThreadPoolFlag(bool flag);
   storage::StorageOptions storage_options();
-  std::unique_ptr<PikaDispatchThread>& pika_dispatch_thread() {
-    return pika_dispatch_thread_;
-  }
+  std::unique_ptr<PikaDispatchThread>& pika_dispatch_thread() { return pika_dispatch_thread_; }
 
   /*
    * DB use
@@ -117,21 +115,11 @@ class PikaServer : public pstd::noncopyable {
   std::shared_ptr<DB> GetDB(const std::string& db_name);
   std::set<std::string> GetAllDBName();
   pstd::Status DoSameThingSpecificDB(const std::set<std::string>& dbs, const TaskArg& arg);
-  std::shared_mutex& GetDBLock() {
-    return dbs_rw_;
-  }
-  void DBLockShared() {
-    dbs_rw_.lock_shared();
-  }
-  void DBLock() {
-    dbs_rw_.lock();
-  }
-  void DBUnlock() {
-    dbs_rw_.unlock();
-  }
-  void DBUnlockShared() {
-    dbs_rw_.unlock_shared();
-  }
+  std::shared_mutex& GetDBLock() { return dbs_rw_; }
+  void DBLockShared() { dbs_rw_.lock_shared(); }
+  void DBLock() { dbs_rw_.lock(); }
+  void DBUnlock() { dbs_rw_.unlock(); }
+  void DBUnlockShared() { dbs_rw_.unlock_shared(); }
 
   /*
    * DB use
@@ -153,7 +141,7 @@ class PikaServer : public pstd::noncopyable {
   bool TryAddSlave(const std::string& ip, int64_t port, int fd, const std::vector<DBStruct>& table_structs);
   pstd::Mutex slave_mutex_;  // protect slaves_;
   std::vector<SlaveItem> slaves_;
-  int slave_size(){
+  int slave_size() {
     std::lock_guard l(slave_mutex_);
     return slaves_.size();
   }
@@ -168,7 +156,7 @@ class PikaServer : public pstd::noncopyable {
    */
   void SyncError();
   void RemoveMaster();
-  bool SetMaster(std::string& master_ip, int master_port, bool is_consistency=false);
+  bool SetMaster(std::string& master_ip, int master_port, bool is_consistency = false);
 
   /*
    * Slave State Machine
@@ -181,8 +169,8 @@ class PikaServer : public pstd::noncopyable {
   void UpdateMetaSyncTimestamp();
   void UpdateMetaSyncTimestampWithoutLock();
   bool IsFirstMetaSync();
-  bool IsConsistency(); 
-  void SetIsConsistency(bool is_consistency);
+  bool IsConsistency();
+  void SetConsistency(bool is_consistency);
   void SetFirstMetaSync(bool v);
 
   /*
@@ -271,12 +259,8 @@ class PikaServer : public pstd::noncopyable {
   /*
    * Disk usage statistic
    */
-  uint64_t GetDBSize() const {
-    return disk_statistic_.db_size_.load();
-  }
-  uint64_t GetLogSize() const {
-    return disk_statistic_.log_size_.load();
-  }
+  uint64_t GetDBSize() const { return disk_statistic_.db_size_.load(); }
+  uint64_t GetLogSize() const { return disk_statistic_.log_size_.load(); }
 
   /*
    * Network Statistic used
@@ -320,9 +304,11 @@ class PikaServer : public pstd::noncopyable {
   /*
    * Async migrate used
    */
-  int SlotsMigrateOne(const std::string& key, const std::shared_ptr<DB> &db);
-  bool SlotsMigrateBatch(const std::string &ip, int64_t port, int64_t time_out, int64_t slots, int64_t keys_num, const std::shared_ptr<DB>& db);
-  void GetSlotsMgrtSenderStatus(std::string *ip, int64_t* port, int64_t *slot, bool *migrating, int64_t *moved, int64_t *remained);
+  int SlotsMigrateOne(const std::string& key, const std::shared_ptr<DB>& db);
+  bool SlotsMigrateBatch(const std::string& ip, int64_t port, int64_t time_out, int64_t slots, int64_t keys_num,
+                         const std::shared_ptr<DB>& db);
+  void GetSlotsMgrtSenderStatus(std::string* ip, int64_t* port, int64_t* slot, bool* migrating, int64_t* moved,
+                                int64_t* remained);
   bool SlotsMigrateAsyncCancel();
   std::shared_mutex bgslots_protector_;
 
@@ -450,17 +436,15 @@ class PikaServer : public pstd::noncopyable {
   storage::Status RewriteStorageOptions(const storage::OptionType& option_type,
                                         const std::unordered_map<std::string, std::string>& options);
 
- /*
-  * Instantaneous Metric used
-  */
+  /*
+   * Instantaneous Metric used
+   */
   std::unique_ptr<Instant> instant_;
 
- /*
-  * Diskrecovery used
-  */
-  std::map<std::string, std::shared_ptr<DB>> GetDB() {
-    return dbs_;
-  }
+  /*
+   * Diskrecovery used
+   */
+  std::map<std::string, std::shared_ptr<DB>> GetDB() { return dbs_; }
 
   /*
    * acl init
@@ -488,7 +472,7 @@ class PikaServer : public pstd::noncopyable {
    * Cache used
    */
   static void DoCacheBGTask(void* arg);
-  void ResetCacheAsync(uint32_t cache_num, std::shared_ptr<DB> db, cache::CacheConfig *cache_cfg = nullptr);
+  void ResetCacheAsync(uint32_t cache_num, std::shared_ptr<DB> db, cache::CacheConfig* cache_cfg = nullptr);
   void ClearCacheDbAsync(std::shared_ptr<DB> db);
   void ClearCacheDbAsyncV2(std::shared_ptr<DB> db);
   void ResetCacheConfig(std::shared_ptr<DB> db);
@@ -496,31 +480,33 @@ class PikaServer : public pstd::noncopyable {
   void OnCacheStartPosChanged(int zset_cache_start_direction, std::shared_ptr<DB> db);
   void UpdateCacheInfo(void);
   void ResetDisplayCacheInfo(int status, std::shared_ptr<DB> db);
-  void CacheConfigInit(cache::CacheConfig &cache_cfg);
+  void CacheConfigInit(cache::CacheConfig& cache_cfg);
   void ProcessCronTask();
   double HitRatio();
   void SetLogNetActivities(bool value);
   /*
-  * disable compact
-  */
+   * disable compact
+   */
   void DisableCompact();
 
   /*
    * lastsave used
    */
-  int64_t GetLastSave() const {return lastsave_;}
-  void UpdateLastSave(int64_t lastsave) {lastsave_ = lastsave;}
-  void InitStatistic(CmdTable *inited_cmd_table) {
+  int64_t GetLastSave() const { return lastsave_; }
+  void UpdateLastSave(int64_t lastsave) { lastsave_ = lastsave; }
+  void InitStatistic(CmdTable* inited_cmd_table) {
     // we insert all cmd name to statistic_.server_stat.exec_count_db,
-    // then when we can call PikaServer::UpdateQueryNumAndExecCountDB(const std::string&, const std::string&, bool) in parallel without lock
-    // although exec_count_db(unordered_map) is not thread-safe, but we won't trigger any insert or erase operation toward exec_count_db(unordered_map) during the running of pika
-    auto &exec_stat_map = statistic_.server_stat.exec_count_db;
+    // then when we can call PikaServer::UpdateQueryNumAndExecCountDB(const std::string&, const std::string&, bool) in
+    // parallel without lock although exec_count_db(unordered_map) is not thread-safe, but we won't trigger any insert
+    // or erase operation toward exec_count_db(unordered_map) during the running of pika
+    auto& exec_stat_map = statistic_.server_stat.exec_count_db;
     for (auto& it : *inited_cmd_table) {
-      std::string cmd_name = it.first; //value copy is needed
-      pstd::StringToUpper(cmd_name); //cmd_name now is all uppercase
+      std::string cmd_name = it.first;  // value copy is needed
+      pstd::StringToUpper(cmd_name);    // cmd_name now is all uppercase
       exec_stat_map.insert(std::make_pair(cmd_name, 0));
     }
   }
+
  private:
   /*
    * TimingTask use
