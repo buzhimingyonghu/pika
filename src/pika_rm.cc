@@ -236,7 +236,7 @@ Status SyncMasterDB::WakeUpSlaveBinlogSync() {
         std::lock_guard l(slave_ptr->slave_mu);
         if (slave_ptr->sent_offset == slave_ptr->acked_offset) {
           Status s;
-          if (coordinator_.GetISConsistency()) {
+          if (coordinator_.GetISConsistency()&&(slave_ptr->slave_state == SlaveState::kSlaveBinlogSync||slave_ptr->slave_state == SlaveState::KCandidate)) {
             s = coordinator_.SendBinlog(slave_ptr, db_info_.db_name_);
           } else {
             s = ReadBinlogFileToWq(slave_ptr);
@@ -447,7 +447,9 @@ Status SyncMasterDB::AppendCandidateBinlog(const std::string& ip, int port, cons
     }else {
       slave_ptr->slave_state = KCandidate;
     }
-    LOG(INFO)<<"PacificA first binlog slave_state: "<< slave_ptr->slave_state;   
+    if(slave_ptr->slave_state == KCandidate){
+      LOG(INFO)<<"PacificA first binlog slave_state is Candidate";
+    }
     slave_ptr->sent_offset = offset;           
     slave_ptr->acked_offset = offset;
     slave_ptr->target_offset =GetPreparedId();

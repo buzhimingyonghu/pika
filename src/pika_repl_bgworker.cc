@@ -131,7 +131,14 @@ void PikaReplBgWorker::HandleBGWorkerWriteBinlog(void* arg) {
       slave_db->SetReplState(ReplState::kTryConnect);
       return;
     }
-
+    if(db->GetISConsistency()){
+      const InnerMessage::BinlogOffset& committed_id = binlog_res.committed_id();
+      LogOffset master_committed_id(BinlogOffset(committed_id.filenum(),committed_id.offset()),LogicOffset(committed_id.term(),committed_id.index()));
+      Status s= db->CommitAppLog(master_committed_id);
+      if(!s.ok()){
+        return;
+      }
+    }
     // empty binlog treated as keepalive packet
     if (binlog_res.binlog().empty()) {
       continue;
@@ -156,14 +163,6 @@ void PikaReplBgWorker::HandleBGWorkerWriteBinlog(void* arg) {
        LOG(WARNING) << "DB " << worker->db_name_ << " Not Found";
        return;
      }
-    if(db->GetISConsistency()){
-      const InnerMessage::BinlogOffset& committed_id = binlog_res.committed_id();
-      LogOffset master_committed_id(BinlogOffset(committed_id.filenum(),committed_id.offset()),LogicOffset(committed_id.term(),committed_id.index()));
-      Status s= db->CommitAppLog(master_committed_id);
-      if(!s.ok()){
-        return;
-      }
-    }
   }
 
   if (only_keepalive) {

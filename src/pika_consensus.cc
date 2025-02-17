@@ -64,18 +64,20 @@ Status Context::Init() {
 
 void Context::UpdateAppliedIndex(const LogOffset& offset) {
   std::lock_guard l(rwlock_);
-  LogOffset cur_offset;
-  applied_win_.Update(SyncWinItem(offset), SyncWinItem(offset), &cur_offset);
-  if (cur_offset > applied_index_) {
-    applied_index_ = cur_offset;
-    StableSave();
-  }
+  applied_index_ = offset;
+  StableSave();
+  // LogOffset cur_offset;
+  // applied_win_.Update(SyncWinItem(offset), SyncWinItem(offset), &cur_offset);
+  // if (cur_offset > applied_index_) {
+  //   applied_index_ = cur_offset;
+  //   StableSave();
+  // }
 }
 
 void Context::Reset(const LogOffset& offset) {
   std::lock_guard l(rwlock_);
   applied_index_ = offset;
-  applied_win_.Reset();
+  //applied_win_.Reset();
   StableSave();
 }
 
@@ -381,9 +383,9 @@ Status ConsensusCoordinator::UpdateSlave(const std::string& ip, int port, const 
       std::lock_guard l(slave_ptr->slave_mu);
       slave_ptr->acked_offset = end;
       sync_pros_.AddMatchIndex(ip, port, slave_ptr->acked_offset);
-      LOG(INFO) << "PacificA slave ip: " << ip << ", port :" << port << "slave acked_offset "
+      LOG(INFO) << "PacificA slave ip: " << ip << ", port :" << port << ",slave acked_offset "
                 << slave_ptr->acked_offset.ToString();
-      if (slave_ptr->acked_offset >= slave_ptr->target_offset) {
+      if (slave_ptr->slave_state != kSlaveBinlogSync && slave_ptr->acked_offset >= slave_ptr->target_offset) {
         slave_ptr->slave_state = kSlaveBinlogSync;
         LOG(INFO) << "PacificA change slave_state kSlaveBinlogSync acked_offset: " << slave_ptr->acked_offset.ToString()
                   << ", target_offset: " << slave_ptr->target_offset.ToString();
@@ -882,11 +884,9 @@ Status ConsensusCoordinator::AppendSlaveEntries(const std::shared_ptr<Cmd>& cmd_
 Status ConsensusCoordinator::CommitAppLog(const LogOffset& master_committed_id) {
   int index = logs_->FindOffset(logs_->FirstOffset());
   int log_size = logs_->Size();  // Cache log size
-  LOG(INFO) << "PacificA CommitAppLog master_committed_id index: " << index << " log_size: " << log_size
-            << " , m_offset: " << master_committed_id.ToString();
   for (int i = index; i < log_size; ++i) {
     Log::LogItem log = logs_->At(i);
-    if (log.offset >= master_committed_id) {
+    if (master_committed_id >= log.offset) {
       LOG(INFO) << "PacificA master_committed_id: " << master_committed_id.ToString()
                 << ", ApplyLog: " << log.offset.ToString();
       ApplyBinlog(log.cmd_ptr);

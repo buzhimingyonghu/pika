@@ -224,7 +224,7 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
     db->Logger()->GetProducerStatus(&boffset.filenum, &boffset.offset);
     slave_db->SetMasterSessionId(session_id);
     LogOffset offset(boffset, logic_last_offset);
-    LOG(INFO)<<"PacificA first binlog stable offset : "<< offset.ToString();
+    LOG(INFO)<<"PacificA slave first binlog stable offset : "<< offset.ToString();
     if(db->GetISConsistency()){
       if (try_sync_response.has_prepared_id()){
         const InnerMessage::BinlogOffset& prepared_id = try_sync_response.prepared_id();
@@ -235,7 +235,7 @@ void PikaReplClientConn::HandleTrySyncResponse(void* arg) {
         if(master_prepared_id < db->GetPreparedId()){
           if(master_prepared_id < db->GetCommittedId()){
             slave_db->SetReplState(ReplState::kError);
-            LOG(WARNING) << "DB: " << db_name << " master committedId > slave committedId";
+            LOG(WARNING) << "DB: " << db_name << " master preparedId < slave committedId error";
             return;
           }
           db->SetPreparedId(master_prepared_id);
