@@ -236,8 +236,10 @@ Status SyncMasterDB::WakeUpSlaveBinlogSync() {
         std::lock_guard l(slave_ptr->slave_mu);
         if (slave_ptr->sent_offset == slave_ptr->acked_offset) {
           Status s;
-          if (coordinator_.GetISConsistency()&&(slave_ptr->slave_state == SlaveState::kSlaveBinlogSync||slave_ptr->slave_state == SlaveState::KCandidate)) {
-            s = coordinator_.SendBinlog(slave_ptr, db_info_.db_name_);
+          if (coordinator_.GetISConsistency()) {
+            if(slave_ptr->slave_state == SlaveState::kSlaveBinlogSync||slave_ptr->slave_state == SlaveState::KCandidate){
+              s = coordinator_.SendBinlog(slave_ptr, db_info_.db_name_);
+            }
           } else {
             s = ReadBinlogFileToWq(slave_ptr);
           }

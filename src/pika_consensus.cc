@@ -64,20 +64,18 @@ Status Context::Init() {
 
 void Context::UpdateAppliedIndex(const LogOffset& offset) {
   std::lock_guard l(rwlock_);
-  applied_index_ = offset;
-  StableSave();
-  // LogOffset cur_offset;
-  // applied_win_.Update(SyncWinItem(offset), SyncWinItem(offset), &cur_offset);
-  // if (cur_offset > applied_index_) {
-  //   applied_index_ = cur_offset;
-  //   StableSave();
-  // }
+  LogOffset cur_offset;
+  applied_win_.Update(SyncWinItem(offset), SyncWinItem(offset), &cur_offset);
+  if (cur_offset > applied_index_) {
+    applied_index_ = cur_offset;
+    StableSave();
+  }
 }
 
 void Context::Reset(const LogOffset& offset) {
   std::lock_guard l(rwlock_);
   applied_index_ = offset;
-  //applied_win_.Reset();
+  applied_win_.Reset();
   StableSave();
 }
 
